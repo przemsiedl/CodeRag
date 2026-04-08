@@ -20,33 +20,33 @@ public static class QueryCommand
             "Natural language query");
 
         var topKOpt = new Option<int>(
-            "--results",
+            ["--results", "-r"],
             () => 5,
             "How many matching symbols to return");
 
         var kindOpt = new Option<string?>(
-            "--symbol-type",
+            ["--symbol-type", "-s"],
             "Return only symbols of given type(s), comma-separated.\n" +
             "Allowed values: Class, Record, Interface, Enum, Method, Constructor, Property, Field, File\n" +
             "Example: --symbol-type Method,Constructor");
 
         var classOpt = new Option<string?>(
-            "--in-class",
+            ["--in-class", "-ic"],
             "Return only symbols that belong to the given class (partial name match).\n" +
             "Example: --in-class OrderService");
 
         var fileOpt = new Option<string?>(
-            "--in-file",
+            ["--in-file", "-if"],
             "Return only symbols from files matching the given name/path (partial match).\n" +
             "Example: --in-file RagQueryService");
 
         var fileNameOpt = new Option<string?>(
-            "--file-name",
+            ["--file-name", "-fn"],
             "Find files by name (partial match). Returns File-level chunks only.\n" +
             "Example: --file-name .sln  or  --file-name MyProject.csproj");
 
         var fullOpt = new Option<bool>(
-            "--full",
+            ["--full", "-f"],
             "Include full source text in output (default: signatures only).");
 
         var cmd = new Command("query", "Search the indexed codebase for symbols matching a query")
