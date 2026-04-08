@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "CodeRag.Cli": {
+      "commandName": "Project",
+      "commandLineArgs": "index C:\\Users\\przemsiedl\\Documents\\rag"
+    }
+  }
+}
