@@ -4,8 +4,11 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace CodeRag.Core.Parsing;
 
-public sealed class CSharpSyntaxExtractor
+public sealed class CSharpSyntaxExtractor : IFileExtractor
 {
+    public bool CanHandle(string extension) =>
+        extension.Equals(".cs", StringComparison.OrdinalIgnoreCase);
+
     public IReadOnlyList<CodeChunk> Extract(string sourceText, string relativePath)
     {
         var tree = CSharpSyntaxTree.ParseText(sourceText);

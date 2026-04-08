@@ -17,7 +17,7 @@ public static class IndexCommand
 
         cmd.SetHandler(async (string path) =>
         {
-            var config = new RagConfiguration { ProjectRoot = Path.GetFullPath(path) };
+            var config = RagConfiguration.Load(path);
             using var logFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
 
             var bootstrapper = new ModelBootstrapper(config, logFactory.CreateLogger<ModelBootstrapper>());
@@ -28,11 +28,18 @@ public static class IndexCommand
 
             using var model = new MiniLmEmbeddingModel(RagConfiguration.ModelPath, RagConfiguration.VocabPath);
             var repo = new SqliteChunkRepository(db);
-            var extractor = new CSharpSyntaxExtractor();
+
+            var nonCsExtensions = config.IndexedExtensions.Where(e => !e.Equals(".cs", StringComparison.OrdinalIgnoreCase));
+            var extractors = new IFileExtractor[]
+            {
+                new CSharpSyntaxExtractor(),
+                new PlainTextExtractor(nonCsExtensions)
+            };
 
             var pipeline = new IndexingPipeline(
-                extractor, model, repo,
+                extractors, model, repo,
                 config.ProjectRoot,
+                config.IndexedExtensions,
                 logFactory.CreateLogger<IndexingPipeline>());
 
             await pipeline.IndexDirectoryAsync(config.ProjectRoot, config.IndexingParallelism);

@@ -79,6 +79,11 @@ public sealed class SqliteChunkRepository : IChunkRepository
                 filters.Add("LOWER(c.parent_class) LIKE @parentClass");
             if (options.InFile != null)
                 filters.Add("LOWER(c.relative_path) LIKE @inFile");
+            if (options.FileName != null)
+            {
+                filters.Add("LOWER(c.symbol_name) LIKE @fileName");
+                filters.Add("c.kind = 'File'");
+            }
 
             var filterSql = filters.Count > 0 ? "AND " + string.Join(" AND ", filters) : "";
 
@@ -106,6 +111,8 @@ public sealed class SqliteChunkRepository : IChunkRepository
                 cmd.Parameters.AddWithValue("@parentClass", $"%{options.ParentClass.ToLower()}%");
             if (options.InFile != null)
                 cmd.Parameters.AddWithValue("@inFile", $"%{options.InFile.ToLower()}%");
+            if (options.FileName != null)
+                cmd.Parameters.AddWithValue("@fileName", $"%{options.FileName.ToLower()}%");
 
             var results = new List<QueryResult>();
             using var reader = cmd.ExecuteReader();
@@ -146,6 +153,11 @@ public sealed class SqliteChunkRepository : IChunkRepository
                 filters.Add("LOWER(parent_class) LIKE @parentClass");
             if (options.InFile != null)
                 filters.Add("LOWER(relative_path) LIKE @inFile");
+            if (options.FileName != null)
+            {
+                filters.Add("LOWER(symbol_name) LIKE @fileName");
+                filters.Add("kind = 'File'");
+            }
 
             var whereSql = filters.Count > 0 ? "WHERE " + string.Join(" AND ", filters) : "";
 
@@ -170,6 +182,8 @@ public sealed class SqliteChunkRepository : IChunkRepository
                 cmd.Parameters.AddWithValue("@parentClass", $"%{options.ParentClass.ToLower()}%");
             if (options.InFile != null)
                 cmd.Parameters.AddWithValue("@inFile", $"%{options.InFile.ToLower()}%");
+            if (options.FileName != null)
+                cmd.Parameters.AddWithValue("@fileName", $"%{options.FileName.ToLower()}%");
 
             var results = new List<QueryResult>();
             using var reader = cmd.ExecuteReader();

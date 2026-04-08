@@ -38,8 +38,9 @@ public sealed class FileWatcherService : IHostedService, IDisposable
             (key, path, ct) => _pipeline.DeleteFileAsync(path, ct),
             _debounceMs);
 
-        _watcher = new FileSystemWatcher(_watchPath, "*.cs")
+        _watcher = new FileSystemWatcher(_watchPath)
         {
+            Filter = "*.*",
             IncludeSubdirectories = true,
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
             InternalBufferSize = 65536, // 64KB — default 8KB drops events in large repos
@@ -52,12 +53,13 @@ public sealed class FileWatcherService : IHostedService, IDisposable
         _watcher.Deleted += OnDeleted;
         _watcher.Error += OnError;
 
-        _logger.LogInformation("Watching {Path} for .cs changes...", _watchPath);
+        _logger.LogInformation("Watching {Path}...", _watchPath);
         return Task.CompletedTask;
     }
 
     private void OnChanged(object _, FileSystemEventArgs e)
     {
+        if (!_pipeline.IsIndexable(e.FullPath)) return;
         _logger.LogDebug("FSW event {Type}: {Path}", e.ChangeType, e.FullPath);
         _changeQueue?.Enqueue(e.FullPath, e.FullPath, _stoppingToken);
     }
@@ -65,12 +67,15 @@ public sealed class FileWatcherService : IHostedService, IDisposable
     private void OnRenamed(object _, RenamedEventArgs e)
     {
         _logger.LogDebug("FSW event Renamed: {Old} -> {New}", e.OldFullPath, e.FullPath);
-        _deleteQueue?.Enqueue(e.OldFullPath, e.OldFullPath, _stoppingToken);
-        _changeQueue?.Enqueue(e.FullPath, e.FullPath, _stoppingToken);
+        if (_pipeline.IsIndexable(e.OldFullPath))
+            _deleteQueue?.Enqueue(e.OldFullPath, e.OldFullPath, _stoppingToken);
+        if (_pipeline.IsIndexable(e.FullPath))
+            _changeQueue?.Enqueue(e.FullPath, e.FullPath, _stoppingToken);
     }
 
     private void OnDeleted(object _, FileSystemEventArgs e)
     {
+        if (!_pipeline.IsIndexable(e.FullPath)) return;
         _logger.LogDebug("FSW event Deleted: {Path}", e.FullPath);
         _deleteQueue?.Enqueue(e.FullPath, e.FullPath, _stoppingToken);
     }

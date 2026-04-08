@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace CodeRag.Core;
 
 public sealed class RagConfiguration
@@ -6,6 +8,10 @@ public sealed class RagConfiguration
     public int TopK { get; set; } = 5;
     public int WatchDebounceMs { get; set; } = 500;
     public int IndexingParallelism { get; set; } = 4;
+
+    /// <summary>File extensions to index. Configurable via .rag/config.json.</summary>
+    public IReadOnlyList<string> IndexedExtensions { get; set; } =
+        [".cs", ".sln", ".csproj", ".json", ".md"];
 
     /// <summary>Project-local .rag folder — only index.db lives here.</summary>
     public string RagDirectory => Path.Combine(ProjectRoot, ".rag");
@@ -24,4 +30,48 @@ public sealed class RagConfiguration
     public static string Vec0ExtensionName =>
         OperatingSystem.IsWindows() ? "vec0.dll" :
         OperatingSystem.IsMacOS()   ? "vec0.dylib" : "vec0.so";
+
+    /// <summary>
+    /// Loads configuration from .rag/config.json in the project root (if it exists),
+    /// overriding defaults with any values present in the file.
+    /// </summary>
+    public static RagConfiguration Load(string projectRoot)
+    {
+        var config = new RagConfiguration { ProjectRoot = Path.GetFullPath(projectRoot) };
+        var configFile = Path.Combine(config.RagDirectory, "config.json");
+
+        if (!File.Exists(configFile))
+            return config;
+
+        try
+        {
+            using var stream = File.OpenRead(configFile);
+            var overrides = JsonSerializer.Deserialize<RagConfigurationOverrides>(stream,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (overrides is null)
+                return config;
+
+            if (overrides.TopK.HasValue)              config.TopK              = overrides.TopK.Value;
+            if (overrides.WatchDebounceMs.HasValue)   config.WatchDebounceMs   = overrides.WatchDebounceMs.Value;
+            if (overrides.IndexingParallelism.HasValue) config.IndexingParallelism = overrides.IndexingParallelism.Value;
+            if (overrides.IndexedExtensions is { Length: > 0 })
+                config.IndexedExtensions = overrides.IndexedExtensions;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Warning: failed to read {configFile}: {ex.Message}");
+        }
+
+        return config;
+    }
+}
+
+/// <summary>Partial view of RagConfiguration for JSON deserialization (all fields optional).</summary>
+file sealed class RagConfigurationOverrides
+{
+    public int? TopK { get; set; }
+    public int? WatchDebounceMs { get; set; }
+    public int? IndexingParallelism { get; set; }
+    public string[]? IndexedExtensions { get; set; }
 }

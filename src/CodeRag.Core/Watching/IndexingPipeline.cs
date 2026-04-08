@@ -7,34 +7,56 @@ namespace CodeRag.Core.Watching;
 
 public sealed class IndexingPipeline
 {
-    private readonly CSharpSyntaxExtractor _extractor;
+    private readonly IReadOnlyList<IFileExtractor> _extractors;
     private readonly IOnnxEmbeddingModel _embeddingModel;
     private readonly IChunkRepository _repository;
     private readonly string _projectRoot;
+    private readonly IReadOnlyList<string> _indexedExtensions;
     private readonly ILogger<IndexingPipeline> _logger;
 
     public IndexingPipeline(
-        CSharpSyntaxExtractor extractor,
+        IReadOnlyList<IFileExtractor> extractors,
         IOnnxEmbeddingModel embeddingModel,
         IChunkRepository repository,
         string projectRoot,
+        IReadOnlyList<string> indexedExtensions,
         ILogger<IndexingPipeline> logger)
     {
-        _extractor = extractor;
+        _extractors = extractors;
         _embeddingModel = embeddingModel;
         _repository = repository;
         _projectRoot = projectRoot;
+        _indexedExtensions = indexedExtensions;
         _logger = logger;
+    }
+
+    private IFileExtractor? ResolveExtractor(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return _extractors.FirstOrDefault(e => e.CanHandle(ext));
+    }
+
+    public bool IsIndexable(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return _indexedExtensions.Any(e => e.Equals(ext, StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task IndexFileAsync(string absolutePath, CancellationToken ct = default)
     {
         var relativePath = Path.GetRelativePath(_projectRoot, absolutePath)
             .Replace('\\', '/');
+        var extractor = ResolveExtractor(absolutePath);
+        if (extractor is null)
+        {
+            _logger.LogDebug("No extractor for {Path}, skipping", relativePath);
+            return;
+        }
+
         try
         {
             var sourceText = await File.ReadAllTextAsync(absolutePath, ct);
-            var newChunks = _extractor.Extract(sourceText, relativePath);
+            var newChunks = extractor.Extract(sourceText, relativePath);
 
             // Read existing hashes (one lock acquisition)
             var existingHashes = await _repository.GetContentHashesByPathAsync(relativePath, ct);
@@ -94,11 +116,15 @@ public sealed class IndexingPipeline
 
     public async Task IndexDirectoryAsync(string directory, int parallelism, CancellationToken ct = default)
     {
-        var files = Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains(Path.DirectorySeparatorChar + ".rag" + Path.DirectorySeparatorChar))
+        var ragDir = Path.DirectorySeparatorChar + ".rag" + Path.DirectorySeparatorChar;
+        var files = _indexedExtensions
+            .SelectMany(ext => Directory.GetFiles(directory, $"*{ext}", SearchOption.AllDirectories))
+            .Where(f => !f.Contains(ragDir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        _logger.LogInformation("Indexing {Count} .cs files...", files.Count);
+        _logger.LogInformation("Indexing {Count} files ({Exts})...",
+            files.Count, string.Join(", ", _indexedExtensions));
 
         // Embedding (ONNX) runs in parallel; DB writes serialize through the repo's internal semaphore
         await Parallel.ForEachAsync(files, new ParallelOptions
@@ -107,6 +133,6 @@ public sealed class IndexingPipeline
             CancellationToken = ct
         }, async (file, token) => await IndexFileAsync(file, token));
 
-        _logger.LogInformation("Done indexing {Count} files.", files.Count);
+        _logger.LogInformation("Done. Indexed {Count} files.", files.Count);
     }
 }

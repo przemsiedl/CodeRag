@@ -40,12 +40,17 @@ public static class QueryCommand
             "Return only symbols from files matching the given name/path (partial match).\n" +
             "Example: --in-file RagQueryService");
 
+        var fileNameOpt = new Option<string?>(
+            "--file-name",
+            "Find files by name (partial match). Returns File-level chunks only.\n" +
+            "Example: --file-name .sln  or  --file-name MyProject.csproj");
+
         var fullOpt = new Option<bool>(
             "--full",
             "Include full source text in output (default: signatures only).");
 
         var cmd = new Command("query", "Search the indexed codebase for symbols matching a query")
-            { pathArg, queryOpt, topKOpt, kindOpt, classOpt, fileOpt, fullOpt };
+            { pathArg, queryOpt, topKOpt, kindOpt, classOpt, fileOpt, fileNameOpt, fullOpt };
 
         cmd.SetHandler(async (InvocationContext ctx) =>
         {
@@ -55,12 +60,13 @@ public static class QueryCommand
             var symbolType = ctx.ParseResult.GetValueForOption(kindOpt);
             var inClass    = ctx.ParseResult.GetValueForOption(classOpt);
             var inFile     = ctx.ParseResult.GetValueForOption(fileOpt);
+            var fileName   = ctx.ParseResult.GetValueForOption(fileNameOpt);
             var full       = ctx.ParseResult.GetValueForOption(fullOpt);
             var ct         = ctx.GetCancellationToken();
 
-            if (string.IsNullOrWhiteSpace(query) && inClass == null && inFile == null)
+            if (string.IsNullOrWhiteSpace(query) && inClass == null && inFile == null && fileName == null)
             {
-                Console.Error.WriteLine("Error: at least one of -q/--query, --in-class, --in-file must be provided.");
+                Console.Error.WriteLine("Error: at least one of -q/--query, --in-class, --in-file, --file-name must be provided.");
                 ctx.ExitCode = 1;
                 return;
             }
@@ -85,6 +91,7 @@ public static class QueryCommand
                 Kinds = kinds,
                 ParentClass = inClass,
                 InFile = inFile,
+                FileName = fileName,
                 OnlySignatures = onlySignatures
             };
 
