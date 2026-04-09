@@ -6,14 +6,20 @@ public sealed class QueryOptions
 {
     public int TopK { get; init; } = 5;
 
-    /// <summary>Filter by symbol kinds. Null = all kinds.</summary>
-    public IReadOnlySet<SymbolKind>? Kinds { get; init; }
+    /// <summary>Filter by chunk kind (Symbol / FileDocument / SymbolUsage). Null = all.</summary>
+    public IReadOnlySet<ChunkKind>? ChunkKinds { get; init; }
+
+    /// <summary>Filter by code symbol kind (Class, Method, …). Null = all. Only meaningful when ChunkKinds contains Symbol.</summary>
+    public IReadOnlySet<SymbolKind>? SymbolKinds { get; init; }
 
     /// <summary>Filter by parent class name (case-insensitive, partial match).</summary>
     public string? ParentClass { get; init; }
 
     /// <summary>Filter by file path (case-insensitive, partial match on relative path).</summary>
     public string? InFile { get; init; }
+
+    /// <summary>Filter by namespace (case-insensitive, partial match).</summary>
+    public string? InNamespace { get; init; }
 
     /// <summary>
     /// Filter by file name (case-insensitive, partial match on symbol_name for File-kind chunks).

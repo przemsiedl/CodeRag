@@ -24,10 +24,10 @@ public sealed class CSharpSyntaxExtractor : IFileExtractor
         var fileName = Path.GetFileName(relativePath);
         chunks.Add(new CodeChunk
         {
-            Id = ChunkHasher.ComputeId(relativePath, SymbolKind.File, relativePath),
+            Id = ChunkHasher.ComputeId(relativePath, ChunkKind.FileDocument, relativePath),
             RelativePath = relativePath,
             SymbolName = fileName,
-            Kind = SymbolKind.File,
+            Kind = ChunkKind.FileDocument,
             Modifiers = string.Empty,
             Signature = relativePath,
             SourceText = sourceText.TrimEnd(),
@@ -225,14 +225,14 @@ public sealed class CSharpSyntaxExtractor : IFileExtractor
 
         // ── helpers ──────────────────────────────────────────────────────────
 
-        private void AddChunks(string fullText, SymbolKind kind, string fqn,
+        private void AddChunks(string fullText, SymbolKind symbolKind, string fqn,
             string? ns, string? parent, string name, string modifiers, string signature,
             int startLine, int endLine)
         {
             const int maxChars = 4000;
             if (fullText.Length <= maxChars)
             {
-                Chunks.Add(MakeChunk(fullText, kind, fqn, ns, parent, name, modifiers, signature, startLine, endLine));
+                Chunks.Add(MakeChunk(fullText, symbolKind, fqn, ns, parent, name, modifiers, signature, startLine, endLine));
                 return;
             }
 
@@ -242,24 +242,25 @@ public sealed class CSharpSyntaxExtractor : IFileExtractor
             while (i < fullText.Length)
             {
                 var slice = fullText.Substring(i, Math.Min(maxChars, fullText.Length - i));
-                Chunks.Add(MakeChunk(slice, kind, $"{fqn}__part{part}", ns, parent, name, modifiers, signature, startLine, endLine));
+                Chunks.Add(MakeChunk(slice, symbolKind, $"{fqn}__part{part}", ns, parent, name, modifiers, signature, startLine, endLine));
                 i += step;
                 part++;
             }
         }
 
-        private CodeChunk MakeChunk(string text, SymbolKind kind, string fqn,
+        private CodeChunk MakeChunk(string text, SymbolKind symbolKind, string fqn,
             string? ns, string? parent, string name, string modifiers, string signature,
             int startLine, int endLine)
         {
             return new CodeChunk
             {
-                Id = ChunkHasher.ComputeId(_relativePath, kind, fqn),
+                Id = ChunkHasher.ComputeId(_relativePath, ChunkKind.Symbol, fqn, symbolKind),
                 RelativePath = _relativePath,
                 Namespace = ns,
                 ParentClass = parent,
                 SymbolName = name,
-                Kind = kind,
+                Kind = ChunkKind.Symbol,
+                SymbolKind = symbolKind,
                 Modifiers = modifiers,
                 Signature = signature,
                 SourceText = text,

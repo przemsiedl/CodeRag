@@ -64,9 +64,11 @@ rag query D:/repo/my-project -q "order validation" -r 5
 |------|-------|-------------|---------|
 | `--query <text>` | `-q` | Natural-language query | _(required)_ |
 | `--results <n>` | `-r` | Number of results to return | `5` |
-| `--symbol-type <types>` | `-s` | Comma-separated filter: `Class`, `Record`, `Interface`, `Enum`, `Method`, `Constructor`, `Property`, `Field`, `File`, `Reference` | all |
+| `--symbol-type <types>` | `-s` | Comma-separated code symbol filter: `Class`, `Record`, `Interface`, `Enum`, `Method`, `Constructor`, `Property`, `Field` | all |
+| `--chunk-type <types>` | `-ct` | Comma-separated chunk kind filter: `Symbol`, `FileDocument`, `SymbolUsage` | all |
 | `--in-class <name>` | `-ic` | Only symbols belonging to a class (partial match) | _(none)_ |
 | `--in-file <name>` | `-if` | Only symbols from files matching name/path (partial match) | _(none)_ |
+| `--in-namespace <name>` | `-in` | Only symbols from namespaces matching the given name (partial match) | _(none)_ |
 | `--file-name <name>` | `-fn` | Find files by name (partial match). Returns File-level chunks only | _(none)_ |
 | `--full` | `-f` | Include full source text (default: signatures only) | off |
 | `--context <n>` | `-c` | Show N lines of context around the symbol (reads from source file). Overrides `--full` | `0` |
@@ -100,11 +102,14 @@ rag query . -q "order total" -f -g "return"
 # Show full source, but only lines 20-40
 rag query . -q "authentication" -f -lr 20-40
 
-# Find all usages of a symbol (reference chunks)
-rag query . -q "OrderService" -s Reference -r 10
+# Find all usages of a symbol (SymbolUsage chunks)
+rag query . -q "OrderService" -ct SymbolUsage -r 10
 
 # Show source lines where a symbol is referenced
-rag query . -q "ValidateOrder" -s Reference -f
+rag query . -q "ValidateOrder" -ct SymbolUsage -f
+
+# Only symbols from a specific namespace
+rag query . -q "authentication" -in MyApp.Services
 ```
 
 #### Output format
@@ -135,10 +140,10 @@ With `-f` (full source):
      ...
 ```
 
-Reference chunks (`-s Reference`) group all usages of a symbol by file. Each result shows one file that references the symbol, with the actual lines of code:
+SymbolUsage chunks (`-ct SymbolUsage`) group all usages of a symbol by file. Each result shows one file that references the symbol, with the actual lines of code:
 
 ```
-[1] Reference    ValidateOrder (Calls)
+[1] SymbolUsage  ValidateOrder (Calls)
      signature : ValidateOrder (Calls)
      source    :
      Services/OrderService.cs

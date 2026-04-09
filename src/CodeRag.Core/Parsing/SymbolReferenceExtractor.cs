@@ -45,8 +45,8 @@ public static class SymbolReferenceExtractor
         private string BuildFqn(string name, string? ns, string? parent) =>
             ns != null ? $"{ns}.{(parent != null ? parent + "." : "")}{name}" : name;
 
-        private string MakeChunkId(SymbolKind kind, string fqn) =>
-            ChunkHasher.ComputeId(_relativePath, kind, fqn);
+        private string MakeChunkId(SymbolKind symbolKind, string fqn) =>
+            ChunkHasher.ComputeId(_relativePath, ChunkKind.Symbol, fqn, symbolKind);
 
         private void AddRef(string toSymbol, string kind, SyntaxNode node)
         {
@@ -186,7 +186,7 @@ public static class SymbolReferenceExtractor
                     Id = id,
                     RelativePath = _relativePath,
                     SymbolName = toSymbol,
-                    Kind = SymbolKind.Reference,
+                    Kind = ChunkKind.SymbolUsage,
                     Modifiers = kinds,
                     Signature = signature,
                     SourceText = sourceText,

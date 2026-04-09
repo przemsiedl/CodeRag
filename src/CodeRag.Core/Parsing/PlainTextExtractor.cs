@@ -24,10 +24,10 @@ public sealed class PlainTextExtractor : IFileExtractor
         [
             new CodeChunk
             {
-                Id          = ChunkHasher.ComputeId(relativePath, SymbolKind.File, relativePath),
+                Id          = ChunkHasher.ComputeId(relativePath, ChunkKind.FileDocument, relativePath),
                 RelativePath = relativePath,
                 SymbolName  = Path.GetFileName(relativePath),
-                Kind        = SymbolKind.File,
+                Kind        = ChunkKind.FileDocument,
                 Modifiers   = string.Empty,
                 Signature   = relativePath,
                 SourceText  = trimmed,

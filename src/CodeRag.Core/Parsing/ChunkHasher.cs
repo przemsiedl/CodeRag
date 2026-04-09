@@ -5,8 +5,8 @@ namespace CodeRag.Core.Parsing;
 
 public static class ChunkHasher
 {
-    public static string ComputeId(string relativePath, SymbolKind kind, string fullyQualifiedName)
-        => Hash($"{relativePath}|{kind}|{fullyQualifiedName}");
+    public static string ComputeId(string relativePath, ChunkKind chunkKind, string fullyQualifiedName, SymbolKind? symbolKind = null)
+        => Hash($"{relativePath}|{chunkKind}|{symbolKind}|{fullyQualifiedName}");
 
     public static string ComputeContentHash(string sourceText)
         => Hash(sourceText);

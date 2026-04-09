@@ -5,10 +5,10 @@ namespace CodeRag.Core.Storage;
 
 public static class DbInitializer
 {
-    public static readonly IReadOnlyList<SymbolKind> AllKinds =
-        Enum.GetValues<SymbolKind>().ToArray();
+    public static readonly IReadOnlyList<ChunkKind> AllKinds =
+        Enum.GetValues<ChunkKind>().ToArray();
 
-    public static string EmbeddingTable(SymbolKind kind) =>
+    public static string EmbeddingTable(ChunkKind kind) =>
         $"chunk_embeddings_{kind.ToString().ToLowerInvariant()}";
 
     public static void Initialize(SqliteConnection connection)
@@ -22,6 +22,7 @@ public static class DbInitializer
                 parent_class  TEXT,
                 symbol_name   TEXT NOT NULL,
                 kind          TEXT NOT NULL,
+                symbol_kind   TEXT,
                 modifiers     TEXT,
                 signature     TEXT,
                 usings        TEXT NOT NULL DEFAULT '',

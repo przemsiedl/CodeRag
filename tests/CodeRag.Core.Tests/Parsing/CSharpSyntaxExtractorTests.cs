@@ -20,8 +20,8 @@ public class CSharpSyntaxExtractorTests
 
         var chunks = _sut.Extract(source, "src/Services/OrderService.cs");
 
-        Assert.Contains(chunks, c => c.Kind == SymbolKind.Class && c.SymbolName == "OrderService");
-        Assert.Contains(chunks, c => c.Kind == SymbolKind.Method && c.SymbolName == "ProcessOrder");
+        Assert.Contains(chunks, c => c.Kind == ChunkKind.Symbol && c.SymbolKind == SymbolKind.Class && c.SymbolName == "OrderService");
+        Assert.Contains(chunks, c => c.Kind == ChunkKind.Symbol && c.SymbolKind == SymbolKind.Method && c.SymbolName == "ProcessOrder");
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class CSharpSyntaxExtractorTests
         var source = "public class MyClass { public void MyMethod() {} }";
         var chunks = _sut.Extract(source, "test.cs");
 
-        var method = Assert.Single(chunks, c => c.Kind == SymbolKind.Method);
+        var method = Assert.Single(chunks, c => c.Kind == ChunkKind.Symbol && c.SymbolKind == SymbolKind.Method);
         Assert.Equal("MyClass", method.ParentClass);
     }
 
@@ -61,6 +61,6 @@ public class CSharpSyntaxExtractorTests
         var source = "public class Foo { public int Id { get; set; } }";
         var chunks = _sut.Extract(source, "Foo.cs");
 
-        Assert.Contains(chunks, c => c.Kind == SymbolKind.Property && c.SymbolName == "Id");
+        Assert.Contains(chunks, c => c.Kind == ChunkKind.Symbol && c.SymbolKind == SymbolKind.Property && c.SymbolName == "Id");
     }
 }

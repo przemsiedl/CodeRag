@@ -26,9 +26,15 @@ public static class QueryCommand
 
         var kindOpt = new Option<string?>(
             ["--symbol-type", "-s"],
-            "Return only symbols of given type(s), comma-separated.\n" +
-            "Allowed values: Class, Record, Interface, Enum, Method, Constructor, Property, Field, File, Reference\n" +
+            "Filter by code symbol kind, comma-separated.\n" +
+            "Allowed values: Class, Record, Interface, Enum, Method, Constructor, Property, Field\n" +
             "Example: --symbol-type Method,Constructor");
+
+        var chunkKindOpt = new Option<string?>(
+            ["--chunk-type", "-ct"],
+            "Filter by chunk kind (what the chunk represents in the index), comma-separated.\n" +
+            "Allowed values: Symbol, FileDocument, SymbolUsage\n" +
+            "Example: --chunk-type Symbol,FileDocument");
 
         var classOpt = new Option<string?>(
             ["--in-class", "-ic"],
@@ -39,6 +45,11 @@ public static class QueryCommand
             ["--in-file", "-if"],
             "Return only symbols from files matching the given name/path (partial match).\n" +
             "Example: --in-file RagQueryService");
+
+        var namespaceOpt = new Option<string?>(
+            ["--in-namespace", "-in"],
+            "Return only symbols from namespaces matching the given name (partial match).\n" +
+            "Example: --in-namespace CodeRag.Core.Query");
 
         var fileNameOpt = new Option<string?>(
             ["--file-name", "-fn"],
@@ -63,7 +74,7 @@ public static class QueryCommand
             "Show only lines in the given range (e.g. 5-10). Line numbers are absolute (same as in the file). Only affects -f/--full and -c/--context output.");
 
         var cmd = new Command("query", "Search the indexed codebase for symbols matching a query")
-            { pathArg, queryOpt, topKOpt, kindOpt, classOpt, fileOpt, fileNameOpt, fullOpt, contextOpt, grepOpt, linesOpt };
+            { pathArg, queryOpt, topKOpt, kindOpt, chunkKindOpt, classOpt, fileOpt, namespaceOpt, fileNameOpt, fullOpt, contextOpt, grepOpt, linesOpt };
 
         cmd.SetHandler(async (InvocationContext ctx) =>
         {
@@ -71,8 +82,10 @@ public static class QueryCommand
             var query      = ctx.ParseResult.GetValueForOption(queryOpt);
             var results    = ctx.ParseResult.GetValueForOption(topKOpt);
             var symbolType = ctx.ParseResult.GetValueForOption(kindOpt);
+            var chunkType  = ctx.ParseResult.GetValueForOption(chunkKindOpt);
             var inClass    = ctx.ParseResult.GetValueForOption(classOpt);
             var inFile     = ctx.ParseResult.GetValueForOption(fileOpt);
+            var inNamespace = ctx.ParseResult.GetValueForOption(namespaceOpt);
             var fileName   = ctx.ParseResult.GetValueForOption(fileNameOpt);
             var full       = ctx.ParseResult.GetValueForOption(fullOpt);
             var contextN   = ctx.ParseResult.GetValueForOption(contextOpt);
@@ -104,9 +117,9 @@ public static class QueryCommand
                 }
             }
 
-            if (string.IsNullOrWhiteSpace(query) && inClass == null && inFile == null && fileName == null)
+            if (string.IsNullOrWhiteSpace(query) && inClass == null && inFile == null && inNamespace == null && fileName == null)
             {
-                Console.Error.WriteLine("Error: at least one of -q/--query, --in-class, --in-file, --file-name must be provided.");
+                Console.Error.WriteLine("Error: at least one of -q/--query, --in-class, --in-file, --in-namespace, --file-name must be provided.");
                 ctx.ExitCode = 1;
                 return;
             }
@@ -119,21 +132,32 @@ public static class QueryCommand
 
             using var logFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
 
-            IReadOnlySet<SymbolKind>? kinds = null;
+            IReadOnlySet<SymbolKind>? symbolKinds = null;
             if (!string.IsNullOrWhiteSpace(symbolType))
             {
-                kinds = symbolType
+                symbolKinds = symbolType
                     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                     .Select(k => Enum.Parse<SymbolKind>(k, ignoreCase: true))
+                    .ToHashSet();
+            }
+
+            IReadOnlySet<ChunkKind>? chunkKinds = null;
+            if (!string.IsNullOrWhiteSpace(chunkType))
+            {
+                chunkKinds = chunkType
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(k => Enum.Parse<ChunkKind>(k, ignoreCase: true))
                     .ToHashSet();
             }
 
             var options = new QueryOptions
             {
                 TopK = results,
-                Kinds = kinds,
+                ChunkKinds = chunkKinds,
+                SymbolKinds = symbolKinds,
                 ParentClass = inClass,
                 InFile = inFile,
+                InNamespace = inNamespace,
                 FileName = fileName,
                 OnlySignatures = onlySignatures,
                 ContextLines = contextN
@@ -163,14 +187,26 @@ public static class QueryCommand
             {
                 foreach (var r in g.Results)
                 {
-                    Console.WriteLine($"[{i++}] {r.Kind,-12} {r.SymbolName}");
-                    if (r.Kind != Core.Parsing.SymbolKind.Reference)
+                    var kindLabel = r.Kind == Core.Parsing.ChunkKind.Symbol && r.SymbolKind.HasValue
+                        ? r.SymbolKind.Value.ToString()
+                        : r.Kind.ToString();
+                    Console.WriteLine($"[{i++}] {kindLabel,-12} {r.SymbolName}");
+                    switch (r.Kind)
                     {
-                        Console.WriteLine($"     namespace : {r.Namespace}");
-                        Console.WriteLine($"     class     : {r.ParentClass ?? "-"}");
-                        Console.WriteLine($"     file      : {r.RelativePath}:{r.StartLine}-{r.EndLine}");
+                        case Core.Parsing.ChunkKind.Symbol:
+                            Console.WriteLine($"     namespace : {r.Namespace ?? "-"}");
+                            Console.WriteLine($"     class     : {r.ParentClass ?? "-"}");
+                            Console.WriteLine($"     file      : {r.RelativePath}:{r.StartLine}-{r.EndLine}");
+                            Console.WriteLine($"     signature : {r.Signature}");
+                            break;
+                        case Core.Parsing.ChunkKind.FileDocument:
+                            Console.WriteLine($"     file      : {r.RelativePath}");
+                            break;
+                        case Core.Parsing.ChunkKind.SymbolUsage:
+                            Console.WriteLine($"     found in  : {r.RelativePath}");
+                            Console.WriteLine($"     signature : {r.Signature}");
+                            break;
                     }
-                    Console.WriteLine($"     signature : {r.Signature}");
 
                     if (contextN > 0)
                     {
@@ -196,9 +232,9 @@ public static class QueryCommand
                     {
                         Console.WriteLine($"     source    :");
                         var lines = r.SourceText.Split('\n');
-                        if (r.Kind == Core.Parsing.SymbolKind.Reference)
+                        if (r.Kind == Core.Parsing.ChunkKind.SymbolUsage)
                         {
-                            // Reference chunks: source is pre-formatted "file\n  line: content" — print as-is
+                            // SymbolUsage chunks: source is pre-formatted "file\n  line: content" — print as-is
                             foreach (var line in lines)
                             {
                                 if (grepRegex != null && !grepRegex.IsMatch(line)) continue;

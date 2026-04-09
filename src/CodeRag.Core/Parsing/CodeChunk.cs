@@ -1,6 +1,10 @@
 namespace CodeRag.Core.Parsing;
 
-public enum SymbolKind { Class, Record, Interface, Enum, Method, Constructor, Property, Field, File, Reference }
+/// <summary>Kind of code symbol (applies when ChunkKind == Symbol).</summary>
+public enum SymbolKind { Class, Record, Interface, Enum, Method, Constructor, Property, Field }
+
+/// <summary>Kind of index chunk — what the chunk represents in the index.</summary>
+public enum ChunkKind { Symbol, FileDocument, SymbolUsage }
 
 public sealed class CodeChunk
 {
@@ -9,7 +13,9 @@ public sealed class CodeChunk
     public string? Namespace { get; init; }
     public string? ParentClass { get; init; }
     public string SymbolName { get; init; } = string.Empty;
-    public SymbolKind Kind { get; init; }
+    public ChunkKind Kind { get; init; }
+    /// <summary>Non-null only when Kind == ChunkKind.Symbol.</summary>
+    public SymbolKind? SymbolKind { get; init; }
     public string Modifiers { get; init; } = string.Empty;
     public string Signature { get; init; } = string.Empty;
     public string SourceText { get; init; } = string.Empty;

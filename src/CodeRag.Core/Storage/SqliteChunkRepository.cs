@@ -73,31 +73,35 @@ public sealed class SqliteChunkRepository : IChunkRepository
         {
             var embBytes = SerializeEmbedding(queryEmbedding);
 
-            // Determine which per-kind tables to query
-            var kindsToSearch = options.Kinds is { Count: > 0 }
-                ? options.Kinds
-                : (IEnumerable<SymbolKind>)DbInitializer.AllKinds;
+            // Determine which per-ChunkKind tables to query
+            var chunkKindsToSearch = options.ChunkKinds is { Count: > 0 }
+                ? options.ChunkKinds
+                : (IEnumerable<ChunkKind>)DbInitializer.AllKinds;
 
-            // Build optional WHERE filters on chunks (excluding kind — handled by table selection)
+            // Build optional WHERE filters on chunks (excluding ChunkKind — handled by table selection)
             var filters = new List<string>();
+            if (options.SymbolKinds is { Count: > 0 })
+                filters.Add($"c.symbol_kind IN ({string.Join(",", options.SymbolKinds.Select((_, i) => $"@symbolKind{i}"))})");
             if (options.ParentClass != null)
                 filters.Add("LOWER(c.parent_class) LIKE @parentClass");
             if (options.InFile != null)
                 filters.Add("LOWER(c.relative_path) LIKE @inFile");
             if (options.FileName != null)
                 filters.Add("LOWER(c.symbol_name) LIKE @fileName");
+            if (options.InNamespace != null)
+                filters.Add("LOWER(c.namespace) LIKE @inNamespace");
 
             var filterSql = filters.Count > 0 ? "AND " + string.Join(" AND ", filters) : "";
 
             var all = new List<QueryResult>();
 
-            foreach (var kind in kindsToSearch)
+            foreach (var chunkKind in chunkKindsToSearch)
             {
-                var table = DbInitializer.EmbeddingTable(kind);
+                var table = DbInitializer.EmbeddingTable(chunkKind);
                 using var cmd = _db.Connection.CreateCommand();
                 cmd.CommandText = $"""
                     SELECT c.relative_path, c.namespace, c.parent_class, c.symbol_name,
-                           c.kind, c.signature, c.source_text, c.context_header_lines, c.start_line, c.end_line, e.distance
+                           c.kind, c.symbol_kind, c.signature, c.source_text, c.context_header_lines, c.start_line, c.end_line, e.distance
                     FROM {table} e
                     JOIN chunks c ON c.id = e.chunk_id
                     WHERE e.embedding MATCH @emb
@@ -107,31 +111,40 @@ public sealed class SqliteChunkRepository : IChunkRepository
                     """;
                 cmd.Parameters.AddWithValue("@emb", embBytes);
                 cmd.Parameters.AddWithValue("@k", options.TopK);
+                if (options.SymbolKinds is { Count: > 0 })
+                {
+                    int i = 0;
+                    foreach (var sk in options.SymbolKinds)
+                        cmd.Parameters.AddWithValue($"@symbolKind{i++}", sk.ToString());
+                }
                 if (options.ParentClass != null)
                     cmd.Parameters.AddWithValue("@parentClass", $"%{options.ParentClass.ToLower()}%");
                 if (options.InFile != null)
                     cmd.Parameters.AddWithValue("@inFile", $"%{options.InFile.ToLower()}%");
                 if (options.FileName != null)
                     cmd.Parameters.AddWithValue("@fileName", $"%{options.FileName.ToLower()}%");
+                if (options.InNamespace != null)
+                    cmd.Parameters.AddWithValue("@inNamespace", $"%{options.InNamespace.ToLower()}%");
 
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
                     var sourceText = options.OnlySignatures
-                        ? reader.GetString(5)
-                        : reader.GetString(6);
+                        ? reader.GetString(6)
+                        : reader.GetString(7);
                     all.Add(new QueryResult(
                         RelativePath: reader.GetString(0),
                         Namespace: reader.IsDBNull(1) ? null : reader.GetString(1),
                         ParentClass: reader.IsDBNull(2) ? null : reader.GetString(2),
                         SymbolName: reader.GetString(3),
-                        Kind: Enum.Parse<SymbolKind>(reader.GetString(4)),
-                        Signature: reader.GetString(5),
+                        Kind: Enum.Parse<ChunkKind>(reader.GetString(4)),
+                        SymbolKind: reader.IsDBNull(5) ? null : Enum.Parse<SymbolKind>(reader.GetString(5)),
+                        Signature: reader.GetString(6),
                         SourceText: sourceText,
-                        ContextHeaderLines: reader.GetInt32(7),
-                        StartLine: reader.GetInt32(8),
-                        EndLine: reader.GetInt32(9),
-                        Distance: reader.GetDouble(10)
+                        ContextHeaderLines: reader.GetInt32(8),
+                        StartLine: reader.GetInt32(9),
+                        EndLine: reader.GetInt32(10),
+                        Distance: reader.GetDouble(11)
                     ));
                 }
             }
@@ -148,8 +161,10 @@ public sealed class SqliteChunkRepository : IChunkRepository
         try
         {
             var filters = new List<string>();
-            if (options.Kinds is { Count: > 0 })
-                filters.Add($"kind IN ({string.Join(",", options.Kinds.Select((_, i) => $"@kind{i}"))})");
+            if (options.ChunkKinds is { Count: > 0 })
+                filters.Add($"kind IN ({string.Join(",", options.ChunkKinds.Select((_, i) => $"@chunkKind{i}"))})");
+            if (options.SymbolKinds is { Count: > 0 })
+                filters.Add($"symbol_kind IN ({string.Join(",", options.SymbolKinds.Select((_, i) => $"@symbolKind{i}"))})");
             if (options.ParentClass != null)
                 filters.Add("LOWER(parent_class) LIKE @parentClass");
             if (options.InFile != null)
@@ -157,15 +172,17 @@ public sealed class SqliteChunkRepository : IChunkRepository
             if (options.FileName != null)
             {
                 filters.Add("LOWER(symbol_name) LIKE @fileName");
-                filters.Add("kind = 'File'");
+                filters.Add("kind = 'FileDocument'");
             }
+            if (options.InNamespace != null)
+                filters.Add("LOWER(namespace) LIKE @inNamespace");
 
             var whereSql = filters.Count > 0 ? "WHERE " + string.Join(" AND ", filters) : "";
 
             using var cmd = _db.Connection.CreateCommand();
             cmd.CommandText = $"""
                 SELECT relative_path, namespace, parent_class, symbol_name,
-                       kind, signature, source_text, context_header_lines, start_line, end_line
+                       kind, symbol_kind, signature, source_text, context_header_lines, start_line, end_line
                 FROM chunks
                 {whereSql}
                 ORDER BY relative_path, start_line
@@ -173,11 +190,17 @@ public sealed class SqliteChunkRepository : IChunkRepository
                 """;
             cmd.Parameters.AddWithValue("@topK", options.TopK);
 
-            if (options.Kinds is { Count: > 0 })
+            if (options.ChunkKinds is { Count: > 0 })
             {
                 int i = 0;
-                foreach (var kind in options.Kinds)
-                    cmd.Parameters.AddWithValue($"@kind{i++}", kind.ToString());
+                foreach (var ck in options.ChunkKinds)
+                    cmd.Parameters.AddWithValue($"@chunkKind{i++}", ck.ToString());
+            }
+            if (options.SymbolKinds is { Count: > 0 })
+            {
+                int i = 0;
+                foreach (var sk in options.SymbolKinds)
+                    cmd.Parameters.AddWithValue($"@symbolKind{i++}", sk.ToString());
             }
             if (options.ParentClass != null)
                 cmd.Parameters.AddWithValue("@parentClass", $"%{options.ParentClass.ToLower()}%");
@@ -185,25 +208,28 @@ public sealed class SqliteChunkRepository : IChunkRepository
                 cmd.Parameters.AddWithValue("@inFile", $"%{options.InFile.ToLower()}%");
             if (options.FileName != null)
                 cmd.Parameters.AddWithValue("@fileName", $"%{options.FileName.ToLower()}%");
+            if (options.InNamespace != null)
+                cmd.Parameters.AddWithValue("@inNamespace", $"%{options.InNamespace.ToLower()}%");
 
             var results = new List<QueryResult>();
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
                 var sourceText = options.OnlySignatures
-                    ? reader.GetString(5)
-                    : reader.GetString(6);
+                    ? reader.GetString(6)
+                    : reader.GetString(7);
                 results.Add(new QueryResult(
                     RelativePath: reader.GetString(0),
                     Namespace: reader.IsDBNull(1) ? null : reader.GetString(1),
                     ParentClass: reader.IsDBNull(2) ? null : reader.GetString(2),
                     SymbolName: reader.GetString(3),
-                    Kind: Enum.Parse<SymbolKind>(reader.GetString(4)),
-                    Signature: reader.GetString(5),
+                    Kind: Enum.Parse<ChunkKind>(reader.GetString(4)),
+                    SymbolKind: reader.IsDBNull(5) ? null : Enum.Parse<SymbolKind>(reader.GetString(5)),
+                    Signature: reader.GetString(6),
                     SourceText: sourceText,
-                    ContextHeaderLines: reader.GetInt32(7),
-                    StartLine: reader.GetInt32(8),
-                    EndLine: reader.GetInt32(9),
+                    ContextHeaderLines: reader.GetInt32(8),
+                    StartLine: reader.GetInt32(9),
+                    EndLine: reader.GetInt32(10),
                     Distance: 0.0
                 ));
             }
@@ -281,9 +307,9 @@ public sealed class SqliteChunkRepository : IChunkRepository
         metaCmd.Transaction = tx;
         metaCmd.CommandText = """
             INSERT OR REPLACE INTO chunks
-                (id, relative_path, namespace, parent_class, symbol_name, kind, modifiers, signature, source_text, content_hash, context_header_lines, start_line, end_line, indexed_at)
+                (id, relative_path, namespace, parent_class, symbol_name, kind, symbol_kind, modifiers, signature, source_text, content_hash, context_header_lines, start_line, end_line, indexed_at)
             VALUES
-                (@id, @path, @ns, @parent, @name, @kind, @mods, @sig, @src, @hash, @ctxLines, @startLine, @endLine, @at)
+                (@id, @path, @ns, @parent, @name, @kind, @symbolKind, @mods, @sig, @src, @hash, @ctxLines, @startLine, @endLine, @at)
             """;
         metaCmd.Parameters.AddWithValue("@id", chunk.Id);
         metaCmd.Parameters.AddWithValue("@path", chunk.RelativePath);
@@ -291,6 +317,7 @@ public sealed class SqliteChunkRepository : IChunkRepository
         metaCmd.Parameters.AddWithValue("@parent", (object?)chunk.ParentClass ?? DBNull.Value);
         metaCmd.Parameters.AddWithValue("@name", chunk.SymbolName);
         metaCmd.Parameters.AddWithValue("@kind", chunk.Kind.ToString());
+        metaCmd.Parameters.AddWithValue("@symbolKind", (object?)chunk.SymbolKind?.ToString() ?? DBNull.Value);
         metaCmd.Parameters.AddWithValue("@mods", chunk.Modifiers);
         metaCmd.Parameters.AddWithValue("@sig", chunk.Signature);
         metaCmd.Parameters.AddWithValue("@src", chunk.SourceText);
