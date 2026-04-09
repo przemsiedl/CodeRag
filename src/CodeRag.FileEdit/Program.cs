@@ -31,10 +31,10 @@ root.AddOption(delFileOpt);
 var moveFileOpt = new Option<string?>(["--move-file", "-mf"], "Move the active file to a new path");
 root.AddOption(moveFileOpt);
 
-// --del-line / -dl
-var delLineOpt = new Option<int?>(["--del-line", "-dl"], "Delete line at 1-based index n")
+// --del-line / -dl  (supports single line "5" or range "5-10")
+var delLineOpt = new Option<string?>(["--del-line", "-dl"], "Delete line n or range n-m (e.g. 5 or 5-10)")
 {
-    ArgumentHelpName = "n"
+    ArgumentHelpName = "n|n-m"
 };
 root.AddOption(delLineOpt);
 
@@ -54,14 +54,22 @@ var insertLineOpt = new Option<string[]>(["--insert-line", "-il"], "Insert a new
 };
 root.AddOption(insertLineOpt);
 
-// --replace-line / -rl  n content
-var replaceLineOpt = new Option<string[]>(["--replace-line", "-rl"], "Replace line n with content")
+// --replace-line / -rl  n content  or  n-m content
+var replaceLineOpt = new Option<string[]>(["--replace-line", "-rl"], "Replace line n (or range n-m) with content")
 {
     Arity = new ArgumentArity(2, 2),
-    ArgumentHelpName = "n content",
+    ArgumentHelpName = "n|n-m content",
     AllowMultipleArgumentsPerToken = true
 };
 root.AddOption(replaceLineOpt);
+
+// --show / -sh  (optional range)
+var showOpt = new Option<string?>(["--show", "-sh"], "Show active file contents, optionally with line range (e.g. 5-15)")
+{
+    ArgumentHelpName = "n-m",
+    Arity = ArgumentArity.ZeroOrOne
+};
+root.AddOption(showOpt);
 
 root.SetHandler((InvocationContext ctx) =>
 {
@@ -73,6 +81,7 @@ root.SetHandler((InvocationContext ctx) =>
     var addLine       = ctx.ParseResult.GetValueForOption(addLineContentOpt);
     var insertArgs    = ctx.ParseResult.GetValueForOption(insertLineOpt);
     var replaceArgs   = ctx.ParseResult.GetValueForOption(replaceLineOpt);
+    var show          = ctx.ParseResult.GetValueForOption(showOpt);
 
     // --help
     if (help)
@@ -114,21 +123,26 @@ root.SetHandler((InvocationContext ctx) =>
         return;
     }
 
-    // --del-line
-    if (delLine.HasValue)
+    // --del-line (single or range)
+    if (delLine != null)
     {
         RequireFile(out var path);
         var lines = ReadLines(path);
-        int idx = delLine.Value - 1;
-        if (idx < 0 || idx >= lines.Count)
+        if (!TryParseRange(delLine, out int from, out int to))
         {
-            Console.Error.WriteLine($"Error: line {delLine.Value} out of range (1–{lines.Count})");
+            Console.Error.WriteLine($"Error: '{delLine}' is not a valid line number or range (e.g. 5 or 5-10)");
             ctx.ExitCode = 1;
             return;
         }
-        lines.RemoveAt(idx);
+        if (from < 1 || to > lines.Count || from > to)
+        {
+            Console.Error.WriteLine($"Error: range {from}-{to} out of range (1–{lines.Count})");
+            ctx.ExitCode = 1;
+            return;
+        }
+        lines.RemoveRange(from - 1, to - from + 1);
         WriteLines(path, lines);
-        Console.WriteLine($"Deleted line {delLine.Value}");
+        Console.WriteLine(from == to ? $"Deleted line {from}" : $"Deleted lines {from}-{to}");
         return;
     }
 
@@ -167,27 +181,51 @@ root.SetHandler((InvocationContext ctx) =>
         return;
     }
 
-    // --replace-line
+    // --replace-line (single or range)
     if (replaceArgs is { Length: 2 })
     {
-        if (!int.TryParse(replaceArgs[0], out int n))
+        if (!TryParseRange(replaceArgs[0], out int from, out int to))
         {
-            Console.Error.WriteLine($"Error: '{replaceArgs[0]}' is not a valid line number");
+            Console.Error.WriteLine($"Error: '{replaceArgs[0]}' is not a valid line number or range");
             ctx.ExitCode = 1;
             return;
         }
         RequireFile(out var path);
         var lines = ReadLines(path);
-        int idx = n - 1;
-        if (idx < 0 || idx >= lines.Count)
+        if (from < 1 || to > lines.Count || from > to)
         {
-            Console.Error.WriteLine($"Error: line {n} out of range (1–{lines.Count})");
+            Console.Error.WriteLine($"Error: range {from}-{to} out of range (1–{lines.Count})");
             ctx.ExitCode = 1;
             return;
         }
-        lines[idx] = replaceArgs[1];
+        // Replace range with single line of content
+        lines.RemoveRange(from - 1, to - from + 1);
+        lines.Insert(from - 1, replaceArgs[1]);
         WriteLines(path, lines);
-        Console.WriteLine($"Replaced line {n}");
+        Console.WriteLine(from == to ? $"Replaced line {from}" : $"Replaced lines {from}-{to}");
+        return;
+    }
+
+    // --show
+    if (ctx.ParseResult.FindResultFor(showOpt) is not null)
+    {
+        RequireFile(out var path);
+        var lines = ReadLines(path);
+        int from = 1, to = lines.Count;
+        if (show != null)
+        {
+            if (!TryParseRange(show, out from, out to))
+            {
+                Console.Error.WriteLine($"Error: '{show}' is not a valid line range (e.g. 5 or 5-15)");
+                ctx.ExitCode = 1;
+                return;
+            }
+            from = Math.Max(1, from);
+            to = Math.Min(lines.Count, to);
+        }
+        var width = to.ToString().Length;
+        for (int li = from; li <= to; li++)
+            Console.WriteLine($"{li.ToString().PadLeft(width)} | {lines[li - 1]}");
         return;
     }
 
@@ -211,29 +249,47 @@ static void PrintHelp()
           -df, --del-file             Delete the active file from disk
           -mf, --move-file <path>     Move the active file to a new path
 
-          -dl, --del-line <n>         Delete line n
+          -dl, --del-line <n|n-m>     Delete line n or range n-m
           -al, --add-line <content>   Append a line at the end
           -il, --insert-line <n> <content>   Insert a new line before line n
-          -rl, --replace-line <n> <content>  Replace line n with content
+          -rl, --replace-line <n|n-m> <content>  Replace line(s) with content
+          -sh, --show [n-m]           Show file contents (optionally a line range)
 
           -h,  --help                 Show this help
 
         TYPICAL WORKFLOW
           fe -sf src/Foo.cs               set active file
-          fe                              show active file path
+          fe -sh                          show file contents
+          fe -sh 10-20                    show lines 10-20
 
           fe -al "using System;"          append line at end
           fe -il 3 "// comment"           insert before line 3
           fe -rl 5 "public void Foo()"    replace line 5
+          fe -rl 5-10 "// collapsed"      replace lines 5-10 with one line
           fe -dl 7                        delete line 7
+          fe -dl 7-12                     delete lines 7-12
 
           fe -mf src/Bar.cs               rename/move active file
           fe -df                          delete active file
 
         NOTES
-          n — line number (1-based)
+          n — line number (1-based), n-m — inclusive range
           Active file stored in <project>/.rag/fe_current
         """);
+}
+
+static bool TryParseRange(string input, out int from, out int to)
+{
+    var dash = input.IndexOf('-');
+    if (dash < 0)
+    {
+        to = 0;
+        if (int.TryParse(input, out from)) { to = from; return true; }
+        return false;
+    }
+    from = 0; to = 0;
+    return int.TryParse(input.AsSpan(0, dash), out from)
+        && int.TryParse(input.AsSpan(dash + 1), out to);
 }
 
 static List<string> ReadLines(string path) =>

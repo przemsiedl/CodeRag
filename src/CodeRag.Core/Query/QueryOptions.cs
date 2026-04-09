@@ -23,4 +23,10 @@ public sealed class QueryOptions
 
     /// <summary>When true, SourceText in results is replaced with just the Signature.</summary>
     public bool OnlySignatures { get; init; }
+
+    /// <summary>
+    /// Number of context lines to show around the symbol (reads from source file).
+    /// 0 = disabled. When set, overrides OnlySignatures for display purposes.
+    /// </summary>
+    public int ContextLines { get; init; }
 }

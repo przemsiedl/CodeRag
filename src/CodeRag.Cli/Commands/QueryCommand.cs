@@ -49,8 +49,13 @@ public static class QueryCommand
             ["--full", "-f"],
             "Include full source text in output (default: signatures only).");
 
+        var contextOpt = new Option<int>(
+            ["--context", "-c"],
+            () => 0,
+            "Show N lines of context around the symbol (reads from source file). Overrides --full.");
+
         var cmd = new Command("query", "Search the indexed codebase for symbols matching a query")
-            { pathArg, queryOpt, topKOpt, kindOpt, classOpt, fileOpt, fileNameOpt, fullOpt };
+            { pathArg, queryOpt, topKOpt, kindOpt, classOpt, fileOpt, fileNameOpt, fullOpt, contextOpt };
 
         cmd.SetHandler(async (InvocationContext ctx) =>
         {
@@ -62,6 +67,7 @@ public static class QueryCommand
             var inFile     = ctx.ParseResult.GetValueForOption(fileOpt);
             var fileName   = ctx.ParseResult.GetValueForOption(fileNameOpt);
             var full       = ctx.ParseResult.GetValueForOption(fullOpt);
+            var contextN   = ctx.ParseResult.GetValueForOption(contextOpt);
             var ct         = ctx.GetCancellationToken();
 
             if (string.IsNullOrWhiteSpace(query) && inClass == null && inFile == null && fileName == null)
@@ -92,7 +98,8 @@ public static class QueryCommand
                 ParentClass = inClass,
                 InFile = inFile,
                 FileName = fileName,
-                OnlySignatures = onlySignatures
+                OnlySignatures = onlySignatures,
+                ContextLines = contextN
             };
 
             using var db = new RagDbContext(config.DatabasePath, RagConfiguration.Vec0ExtensionPath);
@@ -111,6 +118,9 @@ public static class QueryCommand
                 ))
                 .ToList();
 
+            // Resolve project root for --context file reads
+            var projectRoot = Path.GetFullPath(path);
+
             int i = 1;
             foreach (var g in grouped)
             {
@@ -121,7 +131,25 @@ public static class QueryCommand
                     Console.WriteLine($"     class     : {r.ParentClass ?? "-"}");
                     Console.WriteLine($"     file      : {r.RelativePath}:{r.StartLine}-{r.EndLine}");
                     Console.WriteLine($"     signature : {r.Signature}");
-                    if (!onlySignatures)
+
+                    if (contextN > 0)
+                    {
+                        // --context N: read source file and show N lines around the symbol
+                        var filePath = Path.Combine(projectRoot, r.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+                        if (File.Exists(filePath))
+                        {
+                            var fileLines = File.ReadAllLines(filePath);
+                            int from = Math.Max(0, r.StartLine - 1 - contextN);
+                            int to = Math.Min(fileLines.Length - 1, r.EndLine - 1 + contextN);
+                            Console.WriteLine($"     context   :");
+                            for (int li = from; li <= to; li++)
+                            {
+                                var marker = (li >= r.StartLine - 1 && li <= r.EndLine - 1) ? ">" : " ";
+                                Console.WriteLine($"  {marker}{li + 1,5} | {fileLines[li]}");
+                            }
+                        }
+                    }
+                    else if (!onlySignatures)
                     {
                         Console.WriteLine($"     source    :");
                         var lines = r.SourceText.Split('\n');
