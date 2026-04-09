@@ -31,7 +31,7 @@ public sealed class RagConfiguration
     ///   /src/gen/**    → ignore specific rooted path
     /// </summary>
     public IReadOnlyList<string> IgnorePatterns { get; set; } =
-        ["**/bin/**", "**/obj/**", "**/packages/**", "**/.git/**", "**/.rag/**"];
+        ["**/bin/**", "**/obj/**", "**/packages/**", "**/.git/**", "**/.rag/**", "**/.vs/**", "**/.claude/**"];
 
     /// <summary>Project-local .rag folder — only index.db lives here.</summary>
     public string RagDirectory => Path.Combine(ProjectRoot, ".rag");

@@ -34,12 +34,12 @@ internal static class GlobMatcher
     private static bool MatchGlob(string text, string pattern)
     {
         var regexStr = "^" + Regex.Escape(pattern)
-            .Replace(@"\*\*", "\x00")   // preserve ** before replacing *
-            .Replace(@"\*", "[^/]*")    // * → match anything except /
-            .Replace("\x00", ".*")      // ** → match anything including /
-            .Replace(@"\?", "[^/]")     // ? → any single char except /
-            + "$";
-
+                .Replace(@"\*\*/", "(.*)?")  // Obsługa "**/ " jako opcjonalnego prefiksu/katalogu
+                .Replace(@"/\*\*", "(.*)?")  // Obsługa "/**" na końcu
+                .Replace(@"\*\*", ".*")      // Pozostałe wystąpienia **
+                .Replace(@"\*", "[^/]*")     // Pojedyncza gwiazdka
+                .Replace(@"\?", "[^/]")      // Znak zapytania
+                + "$";
         return Regex.IsMatch(text, regexStr, RegexOptions.IgnoreCase);
     }
 
