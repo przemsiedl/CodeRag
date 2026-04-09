@@ -59,7 +59,7 @@ public static class QueryCommand
             "Filter displayed source lines to those matching the given pattern (regex). Only affects -f/--full and -c/--context output.");
 
         var linesOpt = new Option<string?>(
-            ["--lines", "-l"],
+            ["--lines", "-lr"],
             "Show only lines in the given range (e.g. 5-10). Line numbers are absolute (same as in the file). Only affects -f/--full and -c/--context output.");
 
         var cmd = new Command("query", "Search the indexed codebase for symbols matching a query")

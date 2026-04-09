@@ -71,7 +71,7 @@ rag query D:/repo/my-project -q "order validation" -r 5
 | `--full` | `-f` | Include full source text (default: signatures only) | off |
 | `--context <n>` | `-c` | Show N lines of context around the symbol (reads from source file). Overrides `--full` | `0` |
 | `--grep <pattern>` | `-g` | Filter displayed source lines to those matching the given regex. Only affects `-f`/`-c` output | _(none)_ |
-| `--lines <from-to>` | `-l` | Show only lines in the given range, e.g. `5-10` (absolute line numbers). Only affects `-f`/`-c` output | _(none)_ |
+| `--lines <from-to>` | `-lr` | Show only lines in the given range, e.g. `5-10` (absolute line numbers). Only affects `-f`/`-c` output | _(none)_ |
 
 #### Examples
 
@@ -98,7 +98,7 @@ rag query . -q "send email" -c 5
 rag query . -q "order total" -f -g "return"
 
 # Show full source, but only lines 20-40
-rag query . -q "authentication" -f -l 20-40
+rag query . -q "authentication" -f -lr 20-40
 ```
 
 #### Output format
