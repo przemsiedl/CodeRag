@@ -11,8 +11,7 @@ public sealed class IndexingPipeline
     private readonly IOnnxEmbeddingModel _embeddingModel;
     private readonly IChunkRepository _repository;
     private readonly string _projectRoot;
-    private readonly IReadOnlyList<string> _indexedExtensions;
-    private readonly IReadOnlyList<string> _ignoredDirectories;
+    private readonly IReadOnlyList<string> _indexedPatterns;
     private readonly IReadOnlyList<string> _ignorePatterns;
     private readonly ILogger<IndexingPipeline> _logger;
 
@@ -21,8 +20,7 @@ public sealed class IndexingPipeline
         IOnnxEmbeddingModel embeddingModel,
         IChunkRepository repository,
         string projectRoot,
-        IReadOnlyList<string> indexedExtensions,
-        IReadOnlyList<string> ignoredDirectories,
+        IReadOnlyList<string> indexedPatterns,
         IReadOnlyList<string> ignorePatterns,
         ILogger<IndexingPipeline> logger)
     {
@@ -30,8 +28,7 @@ public sealed class IndexingPipeline
         _embeddingModel = embeddingModel;
         _repository = repository;
         _projectRoot = projectRoot;
-        _indexedExtensions = indexedExtensions;
-        _ignoredDirectories = ignoredDirectories;
+        _indexedPatterns = indexedPatterns;
         _ignorePatterns = ignorePatterns;
         _logger = logger;
     }
@@ -42,62 +39,41 @@ public sealed class IndexingPipeline
         return _extractors.FirstOrDefault(e => e.CanHandle(ext));
     }
 
-    public bool IsIndexable(string path)
+    public bool IsIndexable(string absolutePath)
     {
-        var ext = Path.GetExtension(path);
-        if (!_indexedExtensions.Any(e => e.Equals(ext, StringComparison.OrdinalIgnoreCase)))
-            return false;
-
-        if (IsIgnored(path))
-            return false;
-
-        return true;
+        if (IsIgnored(absolutePath)) return false;
+        return MatchesAnyInclude(absolutePath);
     }
 
-    private bool IsIgnored(string path)
+    private bool MatchesAnyInclude(string absolutePath)
     {
-        // Check directory segments
-        var segments = path.Replace('\\', '/').Split('/');
-        foreach (var segment in segments[..^1]) // skip filename
-        {
-            if (_ignoredDirectories.Any(d => d.Equals(segment, StringComparison.OrdinalIgnoreCase)))
-                return true;
-        }
+        var relativePath = Path.GetRelativePath(_projectRoot, absolutePath).Replace('\\', '/');
+        var ext = Path.GetExtension(absolutePath);
 
-        // Check filename patterns
-        var fileName = Path.GetFileName(path);
-        foreach (var pattern in _ignorePatterns)
+        foreach (var pattern in _indexedPatterns)
         {
-            if (MatchesGlob(fileName, pattern))
-                return true;
+            if (GlobMatcher.IsGlob(pattern))
+            {
+                if (GlobMatcher.Matches(relativePath, pattern)) return true;
+            }
+            else
+            {
+                if (ext.Equals(pattern, StringComparison.OrdinalIgnoreCase)) return true;
+            }
         }
-
         return false;
     }
 
-    private static bool MatchesGlob(string fileName, string pattern)
+    private bool IsIgnored(string absolutePath)
     {
-        // Simple glob: only '*' wildcard supported, matched case-insensitively
-        var parts = pattern.Split('*');
-        if (parts.Length == 1)
-            return fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+        var relativePath = Path.GetRelativePath(_projectRoot, absolutePath).Replace('\\', '/');
 
-        int pos = 0;
-        for (int i = 0; i < parts.Length; i++)
+        foreach (var pattern in _ignorePatterns)
         {
-            var part = parts[i];
-            if (part.Length == 0) continue;
-
-            var idx = fileName.IndexOf(part, pos, StringComparison.OrdinalIgnoreCase);
-            if (idx < 0) return false;
-
-            // First segment must be at start; last segment must be at end
-            if (i == 0 && idx != 0) return false;
-            if (i == parts.Length - 1 && idx + part.Length != fileName.Length) return false;
-
-            pos = idx + part.Length;
+            if (GlobMatcher.Matches(relativePath, pattern)) return true;
         }
-        return true;
+
+        return false;
     }
 
     public async Task IndexFileAsync(string absolutePath, CancellationToken ct = default)
@@ -174,14 +150,28 @@ public sealed class IndexingPipeline
 
     public async Task IndexDirectoryAsync(string directory, int parallelism, CancellationToken ct = default)
     {
-        var files = _indexedExtensions
-            .SelectMany(ext => Directory.GetFiles(directory, $"*{ext}", SearchOption.AllDirectories))
+        var simpleExtensions = _indexedPatterns.Where(e => !GlobMatcher.IsGlob(e)).ToList();
+        bool hasGlobIncludes = simpleExtensions.Count < _indexedPatterns.Count;
+
+        IEnumerable<string> candidates;
+        if (hasGlobIncludes)
+        {
+            // Glob patterns require full directory scan; IsIndexable applies all filters
+            candidates = Directory.GetFiles(directory, "*", SearchOption.AllDirectories);
+        }
+        else
+        {
+            candidates = simpleExtensions
+                .SelectMany(ext => Directory.GetFiles(directory, $"*{ext}", SearchOption.AllDirectories));
+        }
+
+        var files = candidates
             .Where(IsIndexable)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        _logger.LogInformation("Indexing {Count} files ({Exts})...",
-            files.Count, string.Join(", ", _indexedExtensions));
+        _logger.LogInformation("Indexing {Count} files ({Patterns})...",
+            files.Count, string.Join(", ", _indexedPatterns));
 
         // Embedding (ONNX) runs in parallel; DB writes serialize through the repo's internal semaphore
         await Parallel.ForEachAsync(files, new ParallelOptions

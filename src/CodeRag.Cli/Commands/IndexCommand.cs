@@ -29,18 +29,22 @@ public static class IndexCommand
             using var model = new MiniLmEmbeddingModel(RagConfiguration.ModelPath, RagConfiguration.VocabPath, config.UseGpu);
             var repo = new SqliteChunkRepository(db);
 
-            var nonCsExtensions = config.IndexedExtensions.Where(e => !e.Equals(".cs", StringComparison.OrdinalIgnoreCase));
+            // For PlainTextExtractor, derive handled extensions from patterns (globs → their extension)
+            var nonCsPatterns = config.IndexedPatterns
+                .Where(e => !e.Equals(".cs", StringComparison.OrdinalIgnoreCase))
+                .Select(p => p.Contains('*') || p.Contains('/') ? Path.GetExtension(p) : p)
+                .Where(e => !string.IsNullOrEmpty(e))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
             var extractors = new IFileExtractor[]
             {
                 new CSharpSyntaxExtractor(),
-                new PlainTextExtractor(nonCsExtensions)
+                new PlainTextExtractor(nonCsPatterns)
             };
 
             var pipeline = new IndexingPipeline(
                 extractors, model, repo,
                 config.ProjectRoot,
-                config.IndexedExtensions,
-                config.IgnoredDirectories,
+                config.IndexedPatterns,
                 config.IgnorePatterns,
                 logFactory.CreateLogger<IndexingPipeline>());
 

@@ -8,22 +8,30 @@ public sealed class RagConfiguration
     public int TopK { get; set; } = 5;
     public int WatchDebounceMs { get; set; } = 500;
     public int IndexingParallelism { get; set; } = 4;
+
     /// <summary>
     /// Use DirectML GPU acceleration for embeddings. Requires a DirectML-capable GPU and driver.
     /// Note: some GPU/driver combinations may not support all ONNX ops used by this model — leave false if you experience crashes.
     /// </summary>
     public bool UseGpu { get; set; } = false;
 
-    /// <summary>File extensions to index. Configurable via .rag/config.json.</summary>
-    public IReadOnlyList<string> IndexedExtensions { get; set; } =
-        [".cs", ".sln", ".csproj", ".json", ".md"];
+    /// <summary>
+    /// Glob patterns for files to index. Supports plain extensions (.cs) and glob paths.
+    ///   .cs           → all .cs files (any directory)
+    ///   /src/*.cs     → .cs files directly in src/
+    ///   /src/**/*.cs  → all .cs files in src/ and subdirectories
+    /// </summary>
+    public IReadOnlyList<string> IndexedPatterns { get; set; } =
+        ["**/*.cs", "**/*.sln", "**/*.csproj", "**/*.json", "**/*.md"];
 
-    /// <summary>Directory names to exclude (matched against any path segment).</summary>
-    public IReadOnlyList<string> IgnoredDirectories { get; set; } =
-        ["bin", "obj", "packages", ".git", ".rag"];
-
-    /// <summary>Glob-style filename patterns to exclude (e.g. "*.Design.cs", "*.doc.md"). Ignore wins over include.</summary>
-    public IReadOnlyList<string> IgnorePatterns { get; set; } = [];
+    /// <summary>
+    /// Glob patterns for files/directories to exclude. Ignore wins over include.
+    ///   **/bin/**      → ignore bin/ directory at any depth
+    ///   *.Design.cs    → ignore by filename pattern
+    ///   /src/gen/**    → ignore specific rooted path
+    /// </summary>
+    public IReadOnlyList<string> IgnorePatterns { get; set; } =
+        ["**/bin/**", "**/obj/**", "**/packages/**", "**/.git/**", "**/.rag/**"];
 
     /// <summary>Project-local .rag folder — only index.db lives here.</summary>
     public string RagDirectory => Path.Combine(ProjectRoot, ".rag");
@@ -64,14 +72,12 @@ public sealed class RagConfiguration
             if (overrides is null)
                 return config;
 
-            if (overrides.TopK.HasValue)              config.TopK              = overrides.TopK.Value;
-            if (overrides.WatchDebounceMs.HasValue)   config.WatchDebounceMs   = overrides.WatchDebounceMs.Value;
+            if (overrides.TopK.HasValue)                config.TopK                = overrides.TopK.Value;
+            if (overrides.WatchDebounceMs.HasValue)     config.WatchDebounceMs     = overrides.WatchDebounceMs.Value;
             if (overrides.IndexingParallelism.HasValue) config.IndexingParallelism = overrides.IndexingParallelism.Value;
             if (overrides.UseGpu.HasValue)              config.UseGpu              = overrides.UseGpu.Value;
-            if (overrides.IndexedExtensions is { Length: > 0 })
-                config.IndexedExtensions = overrides.IndexedExtensions;
-            if (overrides.IgnoredDirectories is not null)
-                config.IgnoredDirectories = overrides.IgnoredDirectories;
+            if (overrides.IndexedPatterns is { Length: > 0 })
+                config.IndexedPatterns = overrides.IndexedPatterns;
             if (overrides.IgnorePatterns is not null)
                 config.IgnorePatterns = overrides.IgnorePatterns;
         }
@@ -91,7 +97,6 @@ file sealed class RagConfigurationOverrides
     public int? WatchDebounceMs { get; set; }
     public int? IndexingParallelism { get; set; }
     public bool? UseGpu { get; set; }
-    public string[]? IndexedExtensions { get; set; }
-    public string[]? IgnoredDirectories { get; set; }
+    public string[]? IndexedPatterns { get; set; }
     public string[]? IgnorePatterns { get; set; }
 }

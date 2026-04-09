@@ -114,8 +114,7 @@ public sealed class ModelBootstrapper
             watchDebounceMs     = _config.WatchDebounceMs,
             indexingParallelism = _config.IndexingParallelism,
             useGpu              = _config.UseGpu,
-            indexedExtensions   = _config.IndexedExtensions,
-            ignoredDirectories  = _config.IgnoredDirectories,
+            indexedPatterns     = _config.IndexedPatterns,
             ignorePatterns      = _config.IgnorePatterns,
         };
 
