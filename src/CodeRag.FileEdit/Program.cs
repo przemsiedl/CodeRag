@@ -1,9 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 
-var stateFile = Path.Combine(
-    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-    ".fe_current");
+var stateFile = Path.Combine(Directory.GetCurrentDirectory(), ".rag", "fe_current");
 
 string? ReadCurrentFile() =>
     File.Exists(stateFile) ? File.ReadAllText(stateFile).Trim() : null;
@@ -17,12 +15,16 @@ void RequireFile(out string path)
 // ── root command ──────────────────────────────────────────────────────────────
 var root = new RootCommand("fe — file edit helper");
 
+// custom --help
+var helpOpt = new Option<bool>(["-h", "--help", "-?"], "Show help and usage information");
+root.AddOption(helpOpt);
+
 // --set-file / -sf
 var setFileOpt = new Option<string?>(["--set-file", "-sf"], "Set the active file for subsequent commands");
 root.AddOption(setFileOpt);
 
 // --del-file / -df
-var delFileOpt = new Option<bool>(["--del-file", "-df"], "Delete the active file");
+var delFileOpt = new Option<bool>(["--del-file", "-df"], "Delete the active file from disk");
 root.AddOption(delFileOpt);
 
 // --move-file / -mf
@@ -30,36 +32,60 @@ var moveFileOpt = new Option<string?>(["--move-file", "-mf"], "Move the active f
 root.AddOption(moveFileOpt);
 
 // --del-line / -dl
-var delLineOpt = new Option<int?>(["--del-line", "-dl"], "Delete line at 1-based index n");
+var delLineOpt = new Option<int?>(["--del-line", "-dl"], "Delete line at 1-based index n")
+{
+    ArgumentHelpName = "n"
+};
 root.AddOption(delLineOpt);
 
-// --add-line / -al  (n content)
-var addLineIndexOpt = new Option<int?>(["--add-line-at", "-ali"], "Line index to insert before (0 = append)");
-var addLineContentOpt = new Option<string?>(["--add-line", "-al"], "Append a line with the given content");
-root.AddOption(addLineIndexOpt);
+// --add-line / -al
+var addLineContentOpt = new Option<string?>(["--add-line", "-al"], "Append a line at the end")
+{
+    ArgumentHelpName = "content"
+};
 root.AddOption(addLineContentOpt);
 
-// --replace-line / -rl  (n content — two values; handled as two options)
-var replaceLineIndexOpt = new Option<int?>(["--replace-line", "-rl"], "Replace line at 1-based index n");
-var replaceLineContentOpt = new Option<string?>(["--replace-content", "-rc"], "Content for the replaced line");
-root.AddOption(replaceLineIndexOpt);
-root.AddOption(replaceLineContentOpt);
+// --insert-line / -il  n content
+var insertLineOpt = new Option<string[]>(["--insert-line", "-il"], "Insert a new line before line n")
+{
+    Arity = new ArgumentArity(2, 2),
+    ArgumentHelpName = "n content",
+    AllowMultipleArgumentsPerToken = true
+};
+root.AddOption(insertLineOpt);
+
+// --replace-line / -rl  n content
+var replaceLineOpt = new Option<string[]>(["--replace-line", "-rl"], "Replace line n with content")
+{
+    Arity = new ArgumentArity(2, 2),
+    ArgumentHelpName = "n content",
+    AllowMultipleArgumentsPerToken = true
+};
+root.AddOption(replaceLineOpt);
 
 root.SetHandler((InvocationContext ctx) =>
 {
+    var help          = ctx.ParseResult.GetValueForOption(helpOpt);
     var setFile       = ctx.ParseResult.GetValueForOption(setFileOpt);
     var delFile       = ctx.ParseResult.GetValueForOption(delFileOpt);
     var moveFile      = ctx.ParseResult.GetValueForOption(moveFileOpt);
     var delLine       = ctx.ParseResult.GetValueForOption(delLineOpt);
-    var addLineAt     = ctx.ParseResult.GetValueForOption(addLineIndexOpt);
     var addLine       = ctx.ParseResult.GetValueForOption(addLineContentOpt);
-    var replaceLine   = ctx.ParseResult.GetValueForOption(replaceLineIndexOpt);
-    var replaceContent = ctx.ParseResult.GetValueForOption(replaceLineContentOpt);
+    var insertArgs    = ctx.ParseResult.GetValueForOption(insertLineOpt);
+    var replaceArgs   = ctx.ParseResult.GetValueForOption(replaceLineOpt);
+
+    // --help
+    if (help)
+    {
+        PrintHelp();
+        return;
+    }
 
     // --set-file
     if (setFile != null)
     {
         var abs = Path.GetFullPath(setFile);
+        Directory.CreateDirectory(Path.GetDirectoryName(stateFile)!);
         File.WriteAllText(stateFile, abs);
         Console.WriteLine($"Active file: {abs}");
         return;
@@ -96,7 +122,7 @@ root.SetHandler((InvocationContext ctx) =>
         int idx = delLine.Value - 1;
         if (idx < 0 || idx >= lines.Count)
         {
-            Console.Error.WriteLine($"Error: line index {delLine.Value} out of range (1–{lines.Count})");
+            Console.Error.WriteLine($"Error: line {delLine.Value} out of range (1–{lines.Count})");
             ctx.ExitCode = 1;
             return;
         }
@@ -111,36 +137,57 @@ root.SetHandler((InvocationContext ctx) =>
     {
         RequireFile(out var path);
         var lines = File.Exists(path) ? ReadLines(path) : new List<string>();
-        if (addLineAt.HasValue && addLineAt.Value > 0 && addLineAt.Value <= lines.Count)
-            lines.Insert(addLineAt.Value - 1, addLine);
-        else
-            lines.Add(addLine);
+        lines.Add(addLine);
         WriteLines(path, lines);
-        Console.WriteLine($"Added line ({lines.Count})");
+        Console.WriteLine($"Added line {lines.Count}");
         return;
     }
 
-    // --replace-line
-    if (replaceLine.HasValue)
+    // --insert-line
+    if (insertArgs is { Length: 2 })
     {
-        if (replaceContent == null)
+        if (!int.TryParse(insertArgs[0], out int n))
         {
-            Console.Error.WriteLine("Error: --replace-content/-rc is required with --replace-line");
+            Console.Error.WriteLine($"Error: '{insertArgs[0]}' is not a valid line number");
             ctx.ExitCode = 1;
             return;
         }
         RequireFile(out var path);
         var lines = ReadLines(path);
-        int idx = replaceLine.Value - 1;
-        if (idx < 0 || idx >= lines.Count)
+        int idx = n - 1;
+        if (idx < 0 || idx > lines.Count)
         {
-            Console.Error.WriteLine($"Error: line index {replaceLine.Value} out of range (1–{lines.Count})");
+            Console.Error.WriteLine($"Error: line {n} out of range (1–{lines.Count + 1})");
             ctx.ExitCode = 1;
             return;
         }
-        lines[idx] = replaceContent;
+        lines.Insert(idx, insertArgs[1]);
         WriteLines(path, lines);
-        Console.WriteLine($"Replaced line {replaceLine.Value}");
+        Console.WriteLine($"Inserted line at {n}");
+        return;
+    }
+
+    // --replace-line
+    if (replaceArgs is { Length: 2 })
+    {
+        if (!int.TryParse(replaceArgs[0], out int n))
+        {
+            Console.Error.WriteLine($"Error: '{replaceArgs[0]}' is not a valid line number");
+            ctx.ExitCode = 1;
+            return;
+        }
+        RequireFile(out var path);
+        var lines = ReadLines(path);
+        int idx = n - 1;
+        if (idx < 0 || idx >= lines.Count)
+        {
+            Console.Error.WriteLine($"Error: line {n} out of range (1–{lines.Count})");
+            ctx.ExitCode = 1;
+            return;
+        }
+        lines[idx] = replaceArgs[1];
+        WriteLines(path, lines);
+        Console.WriteLine($"Replaced line {n}");
         return;
     }
 
@@ -150,6 +197,44 @@ root.SetHandler((InvocationContext ctx) =>
 });
 
 return await root.InvokeAsync(args);
+
+static void PrintHelp()
+{
+    Console.WriteLine("""
+        fe — file edit helper
+
+        USAGE
+          fe [options]
+
+        OPTIONS
+          -sf, --set-file <path>      Set the active file for subsequent commands
+          -df, --del-file             Delete the active file from disk
+          -mf, --move-file <path>     Move the active file to a new path
+
+          -dl, --del-line <n>         Delete line n
+          -al, --add-line <content>   Append a line at the end
+          -il, --insert-line <n> <content>   Insert a new line before line n
+          -rl, --replace-line <n> <content>  Replace line n with content
+
+          -h,  --help                 Show this help
+
+        TYPICAL WORKFLOW
+          fe -sf src/Foo.cs               set active file
+          fe                              show active file path
+
+          fe -al "using System;"          append line at end
+          fe -il 3 "// comment"           insert before line 3
+          fe -rl 5 "public void Foo()"    replace line 5
+          fe -dl 7                        delete line 7
+
+          fe -mf src/Bar.cs               rename/move active file
+          fe -df                          delete active file
+
+        NOTES
+          n — line number (1-based)
+          Active file stored in <project>/.rag/fe_current
+        """);
+}
 
 static List<string> ReadLines(string path) =>
     File.Exists(path) ? new List<string>(File.ReadAllLines(path)) : new List<string>();
