@@ -14,14 +14,34 @@ public sealed class MiniLmEmbeddingModel : IOnnxEmbeddingModel
     private const int MaxTokens = 256;
     private const int EmbeddingDim = 384;
 
+    public bool IsUsingGpu { get; private set; }
+
     public MiniLmEmbeddingModel(string modelPath, string vocabPath, bool useGpu = false)
     {
+        _tokenizer = new SimpleTokenizer(vocabPath);
+
+        if (useGpu)
+        {
+            try
+            {
+                var gpuOpts = new SessionOptions();
+                // Disable graph optimizations — aggressive op fusion (e.g. LayerNormFusion)
+                // produces nodes that DirectML cannot execute on integrated GPUs.
+                gpuOpts.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_BASIC;
+                gpuOpts.AppendExecutionProvider_DML();
+                _session = new InferenceSession(modelPath, gpuOpts);
+                IsUsingGpu = true;
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[rag] GPU (DirectML) init failed, falling back to CPU: {ex.Message}");
+            }
+        }
+
         var opts = new SessionOptions();
         opts.EnableCpuMemArena = true;
-        if (useGpu)
-            opts.AppendExecutionProvider_DML();
         _session = new InferenceSession(modelPath, opts);
-        _tokenizer = new SimpleTokenizer(vocabPath);
     }
 
     public float[] Embed(string text)

@@ -8,7 +8,11 @@ public sealed class RagConfiguration
     public int TopK { get; set; } = 5;
     public int WatchDebounceMs { get; set; } = 500;
     public int IndexingParallelism { get; set; } = 4;
-    public bool UseGpu { get; set; } = true;
+    /// <summary>
+    /// Use DirectML GPU acceleration for embeddings. Requires a DirectML-capable GPU and driver.
+    /// Note: some GPU/driver combinations may not support all ONNX ops used by this model — leave false if you experience crashes.
+    /// </summary>
+    public bool UseGpu { get; set; } = false;
 
     /// <summary>File extensions to index. Configurable via .rag/config.json.</summary>
     public IReadOnlyList<string> IndexedExtensions { get; set; } =
