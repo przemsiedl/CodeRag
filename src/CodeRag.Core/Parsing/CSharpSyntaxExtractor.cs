@@ -101,7 +101,7 @@ public sealed class CSharpSyntaxExtractor : IFileExtractor
 
             var fullText = node.ToFullString().TrimEnd();
             AddChunks(fullText, SymbolKind.Record, fqn, ns, parent, name, modifiers,
-                signature: $"{modifiers} record {name}{node.TypeParameterList}{node.ParameterList}".Trim(),
+                signature: $"{modifiers} record {node.ClassOrStructKeyword} {name}{node.TypeParameterList}{node.ParameterList}".Trim(),
                 start, end);
 
             _classStack.Push(name);

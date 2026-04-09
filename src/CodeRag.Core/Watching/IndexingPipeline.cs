@@ -14,6 +14,7 @@ public sealed class IndexingPipeline
     private readonly IReadOnlyList<string> _indexedPatterns;
     private readonly IReadOnlyList<string> _ignorePatterns;
     private readonly ILogger<IndexingPipeline> _logger;
+    private readonly string? _lockFilePath;
 
     public IndexingPipeline(
         IReadOnlyList<IFileExtractor> extractors,
@@ -22,7 +23,8 @@ public sealed class IndexingPipeline
         string projectRoot,
         IReadOnlyList<string> indexedPatterns,
         IReadOnlyList<string> ignorePatterns,
-        ILogger<IndexingPipeline> logger)
+        ILogger<IndexingPipeline> logger,
+        string? lockFilePath = null)
     {
         _extractors = extractors;
         _embeddingModel = embeddingModel;
@@ -31,6 +33,7 @@ public sealed class IndexingPipeline
         _indexedPatterns = indexedPatterns;
         _ignorePatterns = ignorePatterns;
         _logger = logger;
+        _lockFilePath = lockFilePath;
     }
 
     private IFileExtractor? ResolveExtractor(string path)
@@ -78,6 +81,12 @@ public sealed class IndexingPipeline
 
     public async Task IndexFileAsync(string absolutePath, CancellationToken ct = default)
     {
+        using var lk = _lockFilePath != null ? IndexLock.Acquire(_lockFilePath) : null;
+        await IndexFileCoreAsync(absolutePath, ct);
+    }
+
+    private async Task IndexFileCoreAsync(string absolutePath, CancellationToken ct)
+    {
         var relativePath = Path.GetRelativePath(_projectRoot, absolutePath)
             .Replace('\\', '/');
         var extractor = ResolveExtractor(absolutePath);
@@ -90,7 +99,10 @@ public sealed class IndexingPipeline
         try
         {
             var sourceText = await File.ReadAllTextAsync(absolutePath, ct);
-            var newChunks = extractor.Extract(sourceText, relativePath);
+            var extractedChunks = extractor.Extract(sourceText, relativePath);
+            IReadOnlyList<CodeChunk> newChunks = extractor is CSharpSyntaxExtractor
+                ? [.. extractedChunks, .. SymbolReferenceExtractor.Extract(sourceText, relativePath)]
+                : extractedChunks;
 
             // Read existing hashes (one lock acquisition)
             var existingHashes = await _repository.GetContentHashesByPathAsync(relativePath, ct);
@@ -133,6 +145,7 @@ public sealed class IndexingPipeline
             {
                 _logger.LogDebug("No changes in {Path}", relativePath);
             }
+
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -150,6 +163,7 @@ public sealed class IndexingPipeline
 
     public async Task IndexDirectoryAsync(string directory, int parallelism, CancellationToken ct = default)
     {
+        using var lk = _lockFilePath != null ? IndexLock.Acquire(_lockFilePath) : null;
         var simpleExtensions = _indexedPatterns.Where(e => !GlobMatcher.IsGlob(e)).ToList();
         bool hasGlobIncludes = simpleExtensions.Count < _indexedPatterns.Count;
 
@@ -178,7 +192,7 @@ public sealed class IndexingPipeline
         {
             MaxDegreeOfParallelism = parallelism,
             CancellationToken = ct
-        }, async (file, token) => await IndexFileAsync(file, token));
+        }, async (file, token) => await IndexFileCoreAsync(file, token));
 
         _logger.LogInformation("Done. Indexed {Count} files.", files.Count);
     }

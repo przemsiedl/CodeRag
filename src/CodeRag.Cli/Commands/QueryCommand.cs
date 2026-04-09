@@ -27,7 +27,7 @@ public static class QueryCommand
         var kindOpt = new Option<string?>(
             ["--symbol-type", "-s"],
             "Return only symbols of given type(s), comma-separated.\n" +
-            "Allowed values: Class, Record, Interface, Enum, Method, Constructor, Property, Field, File\n" +
+            "Allowed values: Class, Record, Interface, Enum, Method, Constructor, Property, Field, File, Reference\n" +
             "Example: --symbol-type Method,Constructor");
 
         var classOpt = new Option<string?>(
@@ -114,6 +114,9 @@ public static class QueryCommand
             var onlySignatures = !full;
 
             var config = new RagConfiguration { ProjectRoot = Path.GetFullPath(path) };
+
+            await CodeRag.Core.Storage.IndexLock.WaitForFreeAsync(config.LockFilePath, ct);
+
             using var logFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
 
             IReadOnlySet<SymbolKind>? kinds = null;
@@ -161,9 +164,12 @@ public static class QueryCommand
                 foreach (var r in g.Results)
                 {
                     Console.WriteLine($"[{i++}] {r.Kind,-12} {r.SymbolName}");
-                    Console.WriteLine($"     namespace : {r.Namespace}");
-                    Console.WriteLine($"     class     : {r.ParentClass ?? "-"}");
-                    Console.WriteLine($"     file      : {r.RelativePath}:{r.StartLine}-{r.EndLine}");
+                    if (r.Kind != Core.Parsing.SymbolKind.Reference)
+                    {
+                        Console.WriteLine($"     namespace : {r.Namespace}");
+                        Console.WriteLine($"     class     : {r.ParentClass ?? "-"}");
+                        Console.WriteLine($"     file      : {r.RelativePath}:{r.StartLine}-{r.EndLine}");
+                    }
                     Console.WriteLine($"     signature : {r.Signature}");
 
                     if (contextN > 0)
@@ -190,19 +196,31 @@ public static class QueryCommand
                     {
                         Console.WriteLine($"     source    :");
                         var lines = r.SourceText.Split('\n');
-                        for (int li = 0; li < lines.Length; li++)
+                        if (r.Kind == Core.Parsing.SymbolKind.Reference)
                         {
-                            if (li < r.ContextHeaderLines)
+                            // Reference chunks: source is pre-formatted "file\n  line: content" — print as-is
+                            foreach (var line in lines)
                             {
-                                if (grepRegex == null || grepRegex.IsMatch(lines[li]))
-                                    Console.WriteLine($"       {lines[li]}");
+                                if (grepRegex != null && !grepRegex.IsMatch(line)) continue;
+                                Console.WriteLine($"     {line}");
                             }
-                            else
+                        }
+                        else
+                        {
+                            for (int li = 0; li < lines.Length; li++)
                             {
-                                var lineNo = r.StartLine + (li - r.ContextHeaderLines);
-                                if (lineNo < linesFrom || lineNo > linesTo) continue;
-                                if (grepRegex != null && !grepRegex.IsMatch(lines[li])) continue;
-                                Console.WriteLine($"  {lineNo,5} | {lines[li]}");
+                                if (li < r.ContextHeaderLines)
+                                {
+                                    if (grepRegex == null || grepRegex.IsMatch(lines[li]))
+                                        Console.WriteLine($"       {lines[li]}");
+                                }
+                                else
+                                {
+                                    var lineNo = r.StartLine + (li - r.ContextHeaderLines);
+                                    if (lineNo < linesFrom || lineNo > linesTo) continue;
+                                    if (grepRegex != null && !grepRegex.IsMatch(lines[li])) continue;
+                                    Console.WriteLine($"  {lineNo,5} | {lines[li]}");
+                                }
                             }
                         }
                     }

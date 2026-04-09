@@ -36,6 +36,7 @@ public sealed class RagConfiguration
     /// <summary>Project-local .rag folder — only index.db lives here.</summary>
     public string RagDirectory => Path.Combine(ProjectRoot, ".rag");
     public string DatabasePath => Path.Combine(RagDirectory, "index.db");
+    public string LockFilePath  => Path.Combine(RagDirectory, "index.lock");
 
     /// <summary>Directory where the executable lives — models and extensions are stored here.</summary>
     public static string AppDirectory =>

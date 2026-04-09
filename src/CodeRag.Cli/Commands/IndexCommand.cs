@@ -46,7 +46,8 @@ public static class IndexCommand
                 config.ProjectRoot,
                 config.IndexedPatterns,
                 config.IgnorePatterns,
-                logFactory.CreateLogger<IndexingPipeline>());
+                logFactory.CreateLogger<IndexingPipeline>(),
+                config.LockFilePath);
 
             await pipeline.IndexDirectoryAsync(config.ProjectRoot, config.IndexingParallelism);
 

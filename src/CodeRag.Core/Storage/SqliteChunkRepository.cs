@@ -326,4 +326,5 @@ public sealed class SqliteChunkRepository : IChunkRepository
         Buffer.BlockCopy(embedding, 0, bytes, 0, bytes.Length);
         return bytes;
     }
+
 }

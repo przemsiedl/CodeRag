@@ -1,6 +1,6 @@
 namespace CodeRag.Core.Parsing;
 
-public enum SymbolKind { Class, Record, Interface, Enum, Method, Constructor, Property, Field, File }
+public enum SymbolKind { Class, Record, Interface, Enum, Method, Constructor, Property, Field, File, Reference }
 
 public sealed class CodeChunk
 {
