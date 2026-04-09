@@ -29,4 +29,7 @@ public sealed class QueryOptions
     /// 0 = disabled. When set, overrides OnlySignatures for display purposes.
     /// </summary>
     public int ContextLines { get; init; }
+
+    /// <summary>Skip the first N results (pagination).</summary>
+    public int Offset { get; init; }
 }

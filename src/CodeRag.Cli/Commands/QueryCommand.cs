@@ -54,8 +54,16 @@ public static class QueryCommand
             () => 0,
             "Show N lines of context around the symbol (reads from source file). Overrides --full.");
 
+        var grepOpt = new Option<string?>(
+            ["--grep", "-g"],
+            "Filter displayed source lines to those matching the given pattern (regex). Only affects -f/--full and -c/--context output.");
+
+        var linesOpt = new Option<string?>(
+            ["--lines", "-l"],
+            "Show only lines in the given range (e.g. 5-10). Line numbers are absolute (same as in the file). Only affects -f/--full and -c/--context output.");
+
         var cmd = new Command("query", "Search the indexed codebase for symbols matching a query")
-            { pathArg, queryOpt, topKOpt, kindOpt, classOpt, fileOpt, fileNameOpt, fullOpt, contextOpt };
+            { pathArg, queryOpt, topKOpt, kindOpt, classOpt, fileOpt, fileNameOpt, fullOpt, contextOpt, grepOpt, linesOpt };
 
         cmd.SetHandler(async (InvocationContext ctx) =>
         {
@@ -68,7 +76,33 @@ public static class QueryCommand
             var fileName   = ctx.ParseResult.GetValueForOption(fileNameOpt);
             var full       = ctx.ParseResult.GetValueForOption(fullOpt);
             var contextN   = ctx.ParseResult.GetValueForOption(contextOpt);
+            var grep       = ctx.ParseResult.GetValueForOption(grepOpt);
+            var linesRange = ctx.ParseResult.GetValueForOption(linesOpt);
             var ct         = ctx.GetCancellationToken();
+
+            System.Text.RegularExpressions.Regex? grepRegex = null;
+            if (!string.IsNullOrEmpty(grep))
+            {
+                try { grepRegex = new System.Text.RegularExpressions.Regex(grep, System.Text.RegularExpressions.RegexOptions.IgnoreCase); }
+                catch (ArgumentException ex)
+                {
+                    Console.Error.WriteLine($"Error: invalid --grep pattern: {ex.Message}");
+                    ctx.ExitCode = 1;
+                    return;
+                }
+            }
+
+            int linesFrom = 0, linesTo = int.MaxValue;
+            if (!string.IsNullOrEmpty(linesRange))
+            {
+                var parts = linesRange.Split('-');
+                if (parts.Length != 2 || !int.TryParse(parts[0], out linesFrom) || !int.TryParse(parts[1], out linesTo) || linesFrom > linesTo)
+                {
+                    Console.Error.WriteLine("Error: --lines must be in format FROM-TO (e.g. 5-10).");
+                    ctx.ExitCode = 1;
+                    return;
+                }
+            }
 
             if (string.IsNullOrWhiteSpace(query) && inClass == null && inFile == null && fileName == null)
             {
@@ -144,8 +178,11 @@ public static class QueryCommand
                             Console.WriteLine($"     context   :");
                             for (int li = from; li <= to; li++)
                             {
+                                int lineNo = li + 1;
+                                if (lineNo < linesFrom || lineNo > linesTo) continue;
+                                if (grepRegex != null && !grepRegex.IsMatch(fileLines[li])) continue;
                                 var marker = (li >= r.StartLine - 1 && li <= r.EndLine - 1) ? ">" : " ";
-                                Console.WriteLine($"  {marker}{li + 1,5} | {fileLines[li]}");
+                                Console.WriteLine($"  {marker}{lineNo,5} | {fileLines[li]}");
                             }
                         }
                     }
@@ -157,11 +194,14 @@ public static class QueryCommand
                         {
                             if (li < r.ContextHeaderLines)
                             {
-                                Console.WriteLine($"       {lines[li]}");
+                                if (grepRegex == null || grepRegex.IsMatch(lines[li]))
+                                    Console.WriteLine($"       {lines[li]}");
                             }
                             else
                             {
                                 var lineNo = r.StartLine + (li - r.ContextHeaderLines);
+                                if (lineNo < linesFrom || lineNo > linesTo) continue;
+                                if (grepRegex != null && !grepRegex.IsMatch(lines[li])) continue;
                                 Console.WriteLine($"  {lineNo,5} | {lines[li]}");
                             }
                         }
