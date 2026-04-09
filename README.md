@@ -64,7 +64,7 @@ rag query D:/repo/my-project -q "order validation" -r 5
 |------|-------|-------------|---------|
 | `--query <text>` | `-q` | Natural-language query | _(required)_ |
 | `--results <n>` | `-r` | Number of results to return | `5` |
-| `--symbol-type <types>` | `-s` | Comma-separated filter: `Class`, `Record`, `Interface`, `Enum`, `Method`, `Constructor`, `Property`, `Field`, `File` | all |
+| `--symbol-type <types>` | `-s` | Comma-separated filter: `Class`, `Record`, `Interface`, `Enum`, `Method`, `Constructor`, `Property`, `Field`, `File`, `Reference` | all |
 | `--in-class <name>` | `-ic` | Only symbols belonging to a class (partial match) | _(none)_ |
 | `--in-file <name>` | `-if` | Only symbols from files matching name/path (partial match) | _(none)_ |
 | `--file-name <name>` | `-fn` | Find files by name (partial match). Returns File-level chunks only | _(none)_ |
@@ -99,6 +99,12 @@ rag query . -q "order total" -f -g "return"
 
 # Show full source, but only lines 20-40
 rag query . -q "authentication" -f -lr 20-40
+
+# Find all usages of a symbol (reference chunks)
+rag query . -q "OrderService" -s Reference -r 10
+
+# Show source lines where a symbol is referenced
+rag query . -q "ValidateOrder" -s Reference -f
 ```
 
 #### Output format
@@ -128,6 +134,21 @@ With `-f` (full source):
       9 | {
      ...
 ```
+
+Reference chunks (`-s Reference`) group all usages of a symbol by file. Each result shows one file that references the symbol, with the actual lines of code:
+
+```
+[1] Reference    ValidateOrder (Calls)
+     signature : ValidateOrder (Calls)
+     source    :
+     Services/OrderService.cs
+       42: var result = ValidateOrder(order);
+       87: if (!ValidateOrder(updatedOrder)) throw ...
+```
+
+#### Concurrency
+
+`rag query` automatically waits if `rag index` or `rag watch` is currently writing to the index. No manual coordination is needed.
 
 ### `rag status <path>`
 
