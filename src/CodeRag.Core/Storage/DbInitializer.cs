@@ -1,9 +1,16 @@
+using CodeRag.Core.Parsing;
 using Microsoft.Data.Sqlite;
 
 namespace CodeRag.Core.Storage;
 
 public static class DbInitializer
 {
+    public static readonly IReadOnlyList<SymbolKind> AllKinds =
+        Enum.GetValues<SymbolKind>().ToArray();
+
+    public static string EmbeddingTable(SymbolKind kind) =>
+        $"chunk_embeddings_{kind.ToString().ToLowerInvariant()}";
+
     public static void Initialize(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();
@@ -27,24 +34,19 @@ public static class DbInitializer
             );
 
             CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(relative_path);
-
-            CREATE VIRTUAL TABLE IF NOT EXISTS chunk_embeddings USING vec0(
-                chunk_id TEXT PRIMARY KEY,
-                embedding FLOAT[384]
-            );
             """;
         cmd.ExecuteNonQuery();
 
-        // Migration: add context_header_lines column to existing databases
-        try
+        foreach (var kind in AllKinds)
         {
-            using var migCmd = connection.CreateCommand();
-            migCmd.CommandText = "ALTER TABLE chunks ADD COLUMN context_header_lines INTEGER NOT NULL DEFAULT 0";
-            migCmd.ExecuteNonQuery();
-        }
-        catch (Microsoft.Data.Sqlite.SqliteException)
-        {
-            // Column already exists — ignore
+            using var vecCmd = connection.CreateCommand();
+            vecCmd.CommandText = $"""
+                CREATE VIRTUAL TABLE IF NOT EXISTS {EmbeddingTable(kind)} USING vec0(
+                    chunk_id TEXT PRIMARY KEY,
+                    embedding FLOAT[384]
+                );
+                """;
+            vecCmd.ExecuteNonQuery();
         }
     }
 }

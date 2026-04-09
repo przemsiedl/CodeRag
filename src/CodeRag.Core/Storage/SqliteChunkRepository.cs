@@ -71,71 +71,72 @@ public sealed class SqliteChunkRepository : IChunkRepository
         await _lock.WaitAsync(ct);
         try
         {
-            // Build optional WHERE filters on top of vec0 KNN
+            var embBytes = SerializeEmbedding(queryEmbedding);
+
+            // Determine which per-kind tables to query
+            var kindsToSearch = options.Kinds is { Count: > 0 }
+                ? options.Kinds
+                : (IEnumerable<SymbolKind>)DbInitializer.AllKinds;
+
+            // Build optional WHERE filters on chunks (excluding kind — handled by table selection)
             var filters = new List<string>();
-            if (options.Kinds is { Count: > 0 })
-                filters.Add($"c.kind IN ({string.Join(",", options.Kinds.Select((_, i) => $"@kind{i}"))})");
             if (options.ParentClass != null)
                 filters.Add("LOWER(c.parent_class) LIKE @parentClass");
             if (options.InFile != null)
                 filters.Add("LOWER(c.relative_path) LIKE @inFile");
             if (options.FileName != null)
-            {
                 filters.Add("LOWER(c.symbol_name) LIKE @fileName");
-                filters.Add("c.kind = 'File'");
-            }
 
             var filterSql = filters.Count > 0 ? "AND " + string.Join(" AND ", filters) : "";
 
-            using var cmd = _db.Connection.CreateCommand();
-            cmd.CommandText = $"""
-                SELECT c.relative_path, c.namespace, c.parent_class, c.symbol_name,
-                       c.kind, c.signature, c.source_text, c.context_header_lines, c.start_line, c.end_line, e.distance
-                FROM chunk_embeddings e
-                JOIN chunks c ON c.id = e.chunk_id
-                WHERE e.embedding MATCH @emb
-                  AND k = @k
-                  {filterSql}
-                ORDER BY e.distance
-                """;
-            cmd.Parameters.AddWithValue("@emb", SerializeEmbedding(queryEmbedding));
-            cmd.Parameters.AddWithValue("@k", options.TopK);
+            var all = new List<QueryResult>();
 
-            if (options.Kinds is { Count: > 0 })
+            foreach (var kind in kindsToSearch)
             {
-                int i = 0;
-                foreach (var kind in options.Kinds)
-                    cmd.Parameters.AddWithValue($"@kind{i++}", kind.ToString());
-            }
-            if (options.ParentClass != null)
-                cmd.Parameters.AddWithValue("@parentClass", $"%{options.ParentClass.ToLower()}%");
-            if (options.InFile != null)
-                cmd.Parameters.AddWithValue("@inFile", $"%{options.InFile.ToLower()}%");
-            if (options.FileName != null)
-                cmd.Parameters.AddWithValue("@fileName", $"%{options.FileName.ToLower()}%");
+                var table = DbInitializer.EmbeddingTable(kind);
+                using var cmd = _db.Connection.CreateCommand();
+                cmd.CommandText = $"""
+                    SELECT c.relative_path, c.namespace, c.parent_class, c.symbol_name,
+                           c.kind, c.signature, c.source_text, c.context_header_lines, c.start_line, c.end_line, e.distance
+                    FROM {table} e
+                    JOIN chunks c ON c.id = e.chunk_id
+                    WHERE e.embedding MATCH @emb
+                      AND k = @k
+                      {filterSql}
+                    ORDER BY e.distance
+                    """;
+                cmd.Parameters.AddWithValue("@emb", embBytes);
+                cmd.Parameters.AddWithValue("@k", options.TopK);
+                if (options.ParentClass != null)
+                    cmd.Parameters.AddWithValue("@parentClass", $"%{options.ParentClass.ToLower()}%");
+                if (options.InFile != null)
+                    cmd.Parameters.AddWithValue("@inFile", $"%{options.InFile.ToLower()}%");
+                if (options.FileName != null)
+                    cmd.Parameters.AddWithValue("@fileName", $"%{options.FileName.ToLower()}%");
 
-            var results = new List<QueryResult>();
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                var sourceText = options.OnlySignatures
-                    ? reader.GetString(5) // signature column
-                    : reader.GetString(6);
-                results.Add(new QueryResult(
-                    RelativePath: reader.GetString(0),
-                    Namespace: reader.IsDBNull(1) ? null : reader.GetString(1),
-                    ParentClass: reader.IsDBNull(2) ? null : reader.GetString(2),
-                    SymbolName: reader.GetString(3),
-                    Kind: Enum.Parse<SymbolKind>(reader.GetString(4)),
-                    Signature: reader.GetString(5),
-                    SourceText: sourceText,
-                    ContextHeaderLines: reader.GetInt32(7),
-                    StartLine: reader.GetInt32(8),
-                    EndLine: reader.GetInt32(9),
-                    Distance: reader.GetDouble(10)
-                ));
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    var sourceText = options.OnlySignatures
+                        ? reader.GetString(5)
+                        : reader.GetString(6);
+                    all.Add(new QueryResult(
+                        RelativePath: reader.GetString(0),
+                        Namespace: reader.IsDBNull(1) ? null : reader.GetString(1),
+                        ParentClass: reader.IsDBNull(2) ? null : reader.GetString(2),
+                        SymbolName: reader.GetString(3),
+                        Kind: Enum.Parse<SymbolKind>(reader.GetString(4)),
+                        Signature: reader.GetString(5),
+                        SourceText: sourceText,
+                        ContextHeaderLines: reader.GetInt32(7),
+                        StartLine: reader.GetInt32(8),
+                        EndLine: reader.GetInt32(9),
+                        Distance: reader.GetDouble(10)
+                    ));
+                }
             }
-            return results;
+
+            return all.OrderBy(r => r.Distance).Take(options.TopK).ToList();
         }
         finally { _lock.Release(); }
     }
@@ -258,11 +259,14 @@ public sealed class SqliteChunkRepository : IChunkRepository
         }
         foreach (var id in ids)
         {
-            using var del = _db.Connection.CreateCommand();
-            del.Transaction = tx;
-            del.CommandText = "DELETE FROM chunk_embeddings WHERE chunk_id = @id";
-            del.Parameters.AddWithValue("@id", id);
-            del.ExecuteNonQuery();
+            foreach (var kind in DbInitializer.AllKinds)
+            {
+                using var del = _db.Connection.CreateCommand();
+                del.Transaction = tx;
+                del.CommandText = $"DELETE FROM {DbInitializer.EmbeddingTable(kind)} WHERE chunk_id = @id";
+                del.Parameters.AddWithValue("@id", id);
+                del.ExecuteNonQuery();
+            }
         }
         using var delChunks = _db.Connection.CreateCommand();
         delChunks.Transaction = tx;
@@ -299,16 +303,17 @@ public sealed class SqliteChunkRepository : IChunkRepository
 
         if (chunk.Embedding.Length > 0)
         {
+            var table = DbInitializer.EmbeddingTable(chunk.Kind);
             // vec0 virtual table does not support INSERT OR REPLACE — must DELETE then INSERT
             using var delVec = _db.Connection.CreateCommand();
             delVec.Transaction = tx;
-            delVec.CommandText = "DELETE FROM chunk_embeddings WHERE chunk_id = @id";
+            delVec.CommandText = $"DELETE FROM {table} WHERE chunk_id = @id";
             delVec.Parameters.AddWithValue("@id", chunk.Id);
             delVec.ExecuteNonQuery();
 
             using var vecCmd = _db.Connection.CreateCommand();
             vecCmd.Transaction = tx;
-            vecCmd.CommandText = "INSERT INTO chunk_embeddings (chunk_id, embedding) VALUES (@id, @emb)";
+            vecCmd.CommandText = $"INSERT INTO {table} (chunk_id, embedding) VALUES (@id, @emb)";
             vecCmd.Parameters.AddWithValue("@id", chunk.Id);
             vecCmd.Parameters.AddWithValue("@emb", SerializeEmbedding(chunk.Embedding));
             vecCmd.ExecuteNonQuery();
