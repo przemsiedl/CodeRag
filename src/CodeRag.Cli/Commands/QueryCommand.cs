@@ -96,7 +96,7 @@ public static class QueryCommand
             };
 
             using var db = new RagDbContext(config.DatabasePath, RagConfiguration.Vec0ExtensionPath);
-            using var model = new MiniLmEmbeddingModel(RagConfiguration.ModelPath, RagConfiguration.VocabPath);
+            using var model = new MiniLmEmbeddingModel(RagConfiguration.ModelPath, RagConfiguration.VocabPath, config.UseGpu);
             var repo = new SqliteChunkRepository(db);
             var svc = new RagQueryService(model, repo);
 

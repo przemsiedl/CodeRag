@@ -8,10 +8,18 @@ public sealed class RagConfiguration
     public int TopK { get; set; } = 5;
     public int WatchDebounceMs { get; set; } = 500;
     public int IndexingParallelism { get; set; } = 4;
+    public bool UseGpu { get; set; } = true;
 
     /// <summary>File extensions to index. Configurable via .rag/config.json.</summary>
     public IReadOnlyList<string> IndexedExtensions { get; set; } =
         [".cs", ".sln", ".csproj", ".json", ".md"];
+
+    /// <summary>Directory names to exclude (matched against any path segment).</summary>
+    public IReadOnlyList<string> IgnoredDirectories { get; set; } =
+        ["bin", "obj", "packages", ".git", ".rag"];
+
+    /// <summary>Glob-style filename patterns to exclude (e.g. "*.Design.cs", "*.doc.md"). Ignore wins over include.</summary>
+    public IReadOnlyList<string> IgnorePatterns { get; set; } = [];
 
     /// <summary>Project-local .rag folder — only index.db lives here.</summary>
     public string RagDirectory => Path.Combine(ProjectRoot, ".rag");
@@ -55,8 +63,13 @@ public sealed class RagConfiguration
             if (overrides.TopK.HasValue)              config.TopK              = overrides.TopK.Value;
             if (overrides.WatchDebounceMs.HasValue)   config.WatchDebounceMs   = overrides.WatchDebounceMs.Value;
             if (overrides.IndexingParallelism.HasValue) config.IndexingParallelism = overrides.IndexingParallelism.Value;
+            if (overrides.UseGpu.HasValue)              config.UseGpu              = overrides.UseGpu.Value;
             if (overrides.IndexedExtensions is { Length: > 0 })
                 config.IndexedExtensions = overrides.IndexedExtensions;
+            if (overrides.IgnoredDirectories is not null)
+                config.IgnoredDirectories = overrides.IgnoredDirectories;
+            if (overrides.IgnorePatterns is not null)
+                config.IgnorePatterns = overrides.IgnorePatterns;
         }
         catch (Exception ex)
         {
@@ -73,5 +86,8 @@ file sealed class RagConfigurationOverrides
     public int? TopK { get; set; }
     public int? WatchDebounceMs { get; set; }
     public int? IndexingParallelism { get; set; }
+    public bool? UseGpu { get; set; }
     public string[]? IndexedExtensions { get; set; }
+    public string[]? IgnoredDirectories { get; set; }
+    public string[]? IgnorePatterns { get; set; }
 }

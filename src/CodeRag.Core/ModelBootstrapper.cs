@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 namespace CodeRag.Core;
@@ -34,6 +35,7 @@ public sealed class ModelBootstrapper
         await EnsureFileAsync(RagConfiguration.ModelPath, ModelUrl, "ONNX model", ct);
         await EnsureFileAsync(RagConfiguration.VocabPath, VocabUrl, "vocabulary", ct);
         await EnsureVec0Async(ct);
+        EnsureConfig();
         EnsureGitignore();
     }
 
@@ -98,6 +100,28 @@ public sealed class ModelBootstrapper
         await entryStream.CopyToAsync(outStream, ct);
 
         _logger.LogInformation("sqlite-vec extension saved to {Path}", RagConfiguration.Vec0ExtensionPath);
+    }
+
+    private void EnsureConfig()
+    {
+        var configPath = Path.Combine(_config.RagDirectory, "config.json");
+        if (File.Exists(configPath))
+            return;
+
+        var settings = new
+        {
+            topK                = _config.TopK,
+            watchDebounceMs     = _config.WatchDebounceMs,
+            indexingParallelism = _config.IndexingParallelism,
+            useGpu              = _config.UseGpu,
+            indexedExtensions   = _config.IndexedExtensions,
+            ignoredDirectories  = _config.IgnoredDirectories,
+            ignorePatterns      = _config.IgnorePatterns,
+        };
+
+        var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(configPath, json);
+        _logger.LogInformation("Created default config at {Path}", configPath);
     }
 
     private void EnsureGitignore()

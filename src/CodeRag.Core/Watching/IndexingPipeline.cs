@@ -12,6 +12,8 @@ public sealed class IndexingPipeline
     private readonly IChunkRepository _repository;
     private readonly string _projectRoot;
     private readonly IReadOnlyList<string> _indexedExtensions;
+    private readonly IReadOnlyList<string> _ignoredDirectories;
+    private readonly IReadOnlyList<string> _ignorePatterns;
     private readonly ILogger<IndexingPipeline> _logger;
 
     public IndexingPipeline(
@@ -20,6 +22,8 @@ public sealed class IndexingPipeline
         IChunkRepository repository,
         string projectRoot,
         IReadOnlyList<string> indexedExtensions,
+        IReadOnlyList<string> ignoredDirectories,
+        IReadOnlyList<string> ignorePatterns,
         ILogger<IndexingPipeline> logger)
     {
         _extractors = extractors;
@@ -27,6 +31,8 @@ public sealed class IndexingPipeline
         _repository = repository;
         _projectRoot = projectRoot;
         _indexedExtensions = indexedExtensions;
+        _ignoredDirectories = ignoredDirectories;
+        _ignorePatterns = ignorePatterns;
         _logger = logger;
     }
 
@@ -39,7 +45,59 @@ public sealed class IndexingPipeline
     public bool IsIndexable(string path)
     {
         var ext = Path.GetExtension(path);
-        return _indexedExtensions.Any(e => e.Equals(ext, StringComparison.OrdinalIgnoreCase));
+        if (!_indexedExtensions.Any(e => e.Equals(ext, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        if (IsIgnored(path))
+            return false;
+
+        return true;
+    }
+
+    private bool IsIgnored(string path)
+    {
+        // Check directory segments
+        var segments = path.Replace('\\', '/').Split('/');
+        foreach (var segment in segments[..^1]) // skip filename
+        {
+            if (_ignoredDirectories.Any(d => d.Equals(segment, StringComparison.OrdinalIgnoreCase)))
+                return true;
+        }
+
+        // Check filename patterns
+        var fileName = Path.GetFileName(path);
+        foreach (var pattern in _ignorePatterns)
+        {
+            if (MatchesGlob(fileName, pattern))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool MatchesGlob(string fileName, string pattern)
+    {
+        // Simple glob: only '*' wildcard supported, matched case-insensitively
+        var parts = pattern.Split('*');
+        if (parts.Length == 1)
+            return fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+
+        int pos = 0;
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var part = parts[i];
+            if (part.Length == 0) continue;
+
+            var idx = fileName.IndexOf(part, pos, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) return false;
+
+            // First segment must be at start; last segment must be at end
+            if (i == 0 && idx != 0) return false;
+            if (i == parts.Length - 1 && idx + part.Length != fileName.Length) return false;
+
+            pos = idx + part.Length;
+        }
+        return true;
     }
 
     public async Task IndexFileAsync(string absolutePath, CancellationToken ct = default)
@@ -116,10 +174,9 @@ public sealed class IndexingPipeline
 
     public async Task IndexDirectoryAsync(string directory, int parallelism, CancellationToken ct = default)
     {
-        var ragDir = Path.DirectorySeparatorChar + ".rag" + Path.DirectorySeparatorChar;
         var files = _indexedExtensions
             .SelectMany(ext => Directory.GetFiles(directory, $"*{ext}", SearchOption.AllDirectories))
-            .Where(f => !f.Contains(ragDir))
+            .Where(IsIndexable)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 

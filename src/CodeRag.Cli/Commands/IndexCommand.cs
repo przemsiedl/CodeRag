@@ -26,7 +26,7 @@ public static class IndexCommand
             using var db = new RagDbContext(config.DatabasePath, RagConfiguration.Vec0ExtensionPath);
             DbInitializer.Initialize(db.Connection);
 
-            using var model = new MiniLmEmbeddingModel(RagConfiguration.ModelPath, RagConfiguration.VocabPath);
+            using var model = new MiniLmEmbeddingModel(RagConfiguration.ModelPath, RagConfiguration.VocabPath, config.UseGpu);
             var repo = new SqliteChunkRepository(db);
 
             var nonCsExtensions = config.IndexedExtensions.Where(e => !e.Equals(".cs", StringComparison.OrdinalIgnoreCase));
@@ -40,6 +40,8 @@ public static class IndexCommand
                 extractors, model, repo,
                 config.ProjectRoot,
                 config.IndexedExtensions,
+                config.IgnoredDirectories,
+                config.IgnorePatterns,
                 logFactory.CreateLogger<IndexingPipeline>());
 
             await pipeline.IndexDirectoryAsync(config.ProjectRoot, config.IndexingParallelism);

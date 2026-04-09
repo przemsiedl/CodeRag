@@ -14,10 +14,12 @@ public sealed class MiniLmEmbeddingModel : IOnnxEmbeddingModel
     private const int MaxTokens = 256;
     private const int EmbeddingDim = 384;
 
-    public MiniLmEmbeddingModel(string modelPath, string vocabPath)
+    public MiniLmEmbeddingModel(string modelPath, string vocabPath, bool useGpu = false)
     {
         var opts = new SessionOptions();
         opts.EnableCpuMemArena = true;
+        if (useGpu)
+            opts.AppendExecutionProvider_DML();
         _session = new InferenceSession(modelPath, opts);
         _tokenizer = new SimpleTokenizer(vocabPath);
     }
